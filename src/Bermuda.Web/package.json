@@ -1,0 +1,52 @@
+{
+  "name": "bermuda-web",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "relay-compiler && tsc -b && vite build",
+    "relay": "relay-compiler",
+    "relay:watch": "node scripts/relay-watch.mjs",
+    "relay:schema": "node scripts/download-schema.mjs",
+    "lint": "eslint .",
+    "preview": "vite preview",
+    "test": "vitest",
+    "e2e": "playwright test",
+    "e2e:ui": "playwright test --ui"
+  },
+  "dependencies": {
+    "graphql": "^16.13.1",
+    "leaflet": "^1.9.4",
+    "react": "^19.2.4",
+    "react-dom": "^19.2.4",
+    "react-leaflet": "^5.0.0",
+    "react-relay": "^20.1.1",
+    "relay-runtime": "^20.1.1"
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.13.0",
+    "@playwright/test": "^1.58.2",
+    "@testing-library/jest-dom": "^6.0.0",
+    "@testing-library/react": "^16.0.0",
+    "@types/leaflet": "^1.9.21",
+    "@types/node": "^25.3.5",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
+    "@types/react-relay": "^18.2.1",
+    "@types/relay-runtime": "^20.1.1",
+    "@vitejs/plugin-basic-ssl": "^2.1.4",
+    "@vitejs/plugin-react": "^4.3.3",
+    "eslint": "^9.13.0",
+    "eslint-plugin-react-hooks": "^5.0.0",
+    "eslint-plugin-react-refresh": "^0.4.14",
+    "globals": "^15.11.0",
+    "jsdom": "^25.0.0",
+    "relay-compiler": "^20.1.1",
+    "typescript": "~5.6.2",
+    "typescript-eslint": "^8.11.0",
+    "vite": "^5.4.10",
+    "vite-plugin-relay": "^2.1.0",
+    "vitest": "^2.0.0"
+  }
+}

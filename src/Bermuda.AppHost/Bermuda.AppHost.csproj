@@ -1,0 +1,20 @@
+<Project Sdk="Aspire.AppHost.Sdk/13.1.0">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>4367c254-9eef-4e74-8ed4-05221f453af0</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda\Bermuda.csproj" IsAspireProjectResource="true" />
+    <ProjectReference Include="..\Bermuda.Api\Bermuda.Api.csproj" IsAspireProjectResource="true" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Aspire.Hosting.JavaScript" Version="13.1.2" />
+  </ItemGroup>
+
+</Project>

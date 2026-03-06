@@ -1,0 +1,8 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Bermuda.Api/Bermuda.Api.csproj" />
+    <Project Path="src/Bermuda.AppHost/Bermuda.AppHost.csproj" />
+    <Project Path="src/Bermuda.ServiceDefaults/Bermuda.ServiceDefaults.csproj" />
+    <Project Path="src/Bermuda/Bermuda.csproj" />
+  </Folder>
+</Solution>

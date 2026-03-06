@@ -1,0 +1,15 @@
+.layout {
+  display: flex;
+  gap: 1.5rem;
+  align-items: flex-start;
+}
+
+.tableSection {
+  flex: 1;
+  min-width: 0;
+}
+
+.mapSection {
+  width: 420px;
+  flex-shrink: 0;
+}

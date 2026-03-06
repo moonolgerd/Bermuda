@@ -1,0 +1,105 @@
+﻿<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <AssemblyName>Bermuda</AssemblyName>
+    <RootNamespace>Bermuda</RootNamespace>
+    <RuntimeIdentifiers>win-x64;win-x86;win-arm64</RuntimeIdentifiers>
+    <!--
+      MSIX packaging — override at the command line:
+        dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release -p:MsixVersion=1.2.3.0
+      To sign, also pass:
+        -p:MsixSigningCertThumbprint=<thumbprint>
+    -->
+    <ApplicationIcon>Assets\app.ico</ApplicationIcon>
+    <MsixVersion Condition="'$(MsixVersion)' == ''">1.0.0.0</MsixVersion>
+    <MsixOutputDir Condition="'$(MsixOutputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\msix\</MsixOutputDir>
+    <MsixSigningCertThumbprint Condition="'$(MsixSigningCertThumbprint)' == ''" />
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3240.44" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
+    <!--
+      Provides MakeAppx.exe and SignTool.exe for the CreateMsix target.
+      GeneratePathProperty exposes $(PkgMicrosoft_Windows_SDK_BuildTools).
+    -->
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="WPF-UI" Version="4.2.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.ServiceDefaults\Bermuda.ServiceDefaults.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="Assets\app.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="appsettings.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <!--
+    CreateMsix target
+    =================
+    1. dotnet publish → self-contained win-x64 output
+    2. Stage published files + AppxManifest.xml + Assets/
+    3. MakeAppx pack → Bermuda_<version>_x64.msix
+    4. (optional) SignTool sign
+
+    Usage:
+      dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
+  -->
+  <Target Name="CreateMsix">
+
+    <Error Condition="!Exists('$(PkgMicrosoft_Windows_SDK_BuildTools)')" Text="Microsoft.Windows.SDK.BuildTools not found — run 'dotnet restore src/Bermuda' first." />
+
+    <PropertyGroup>
+      <_PublishDir>$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
+      <_StagingDir>$(MSBuildProjectDirectory)\..\..\artifacts\msix-staging\</_StagingDir>
+      <_MsixPath>$(MsixOutputDir)Bermuda_$(MsixVersion)_x64.msix</_MsixPath>
+      <_MakeAppxExe>$(PkgMicrosoft_Windows_SDK_BuildTools)\bin\10.0.26100.0\x64\makeappx.exe</_MakeAppxExe>
+      <_SignToolExe Condition="'$(MsixSigningCertThumbprint)' != ''">$(PkgMicrosoft_Windows_SDK_BuildTools)\bin\10.0.26100.0\x64\signtool.exe</_SignToolExe>
+    </PropertyGroup>
+
+    <!-- 1. Publish self-contained win-x64 -->
+    <MSBuild Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
+
+    <!-- 2. Prepare a clean staging directory -->
+    <RemoveDir Directories="$(_StagingDir)" />
+    <MakeDir Directories="$(_StagingDir);$(MsixOutputDir)" />
+
+    <!-- 3. Copy published binaries into staging root -->
+    <ItemGroup>
+      <_PublishedFiles Include="$(_PublishDir)**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_PublishedFiles)" DestinationFolder="$(_StagingDir)%(RecursiveDir)" SkipUnchangedFiles="false" />
+
+    <!-- 4. Copy manifest — MakeAppx requires the name AppxManifest.xml -->
+    <Copy SourceFiles="$(MSBuildProjectDirectory)\Package.appxmanifest" DestinationFiles="$(_StagingDir)AppxManifest.xml" />
+
+    <!-- 5. Copy asset images -->
+    <ItemGroup>
+      <_AssetFiles Include="$(MSBuildProjectDirectory)\Assets\**\*" />
+    </ItemGroup>
+    <Copy SourceFiles="@(_AssetFiles)" DestinationFolder="$(_StagingDir)Assets\%(RecursiveDir)" SkipUnchangedFiles="false" />
+
+    <!-- 6. Pack the MSIX -->
+    <Exec Command="&quot;$(_MakeAppxExe)&quot; pack /d &quot;$(_StagingDir.TrimEnd('\'))&quot; /p &quot;$(_MsixPath)&quot; /o /nv" WorkingDirectory="$(MSBuildProjectDirectory)" />
+
+    <!-- 7. Optionally sign -->
+    <Exec Condition="'$(MsixSigningCertThumbprint)' != ''" Command="&quot;$(_SignToolExe)&quot; sign /sha1 $(MsixSigningCertThumbprint) /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 &quot;$(_MsixPath)&quot;" />
+
+    <Message Text="&#xA;MSIX: $(_MsixPath)&#xA;" Importance="high" />
+
+  </Target>
+
+</Project>

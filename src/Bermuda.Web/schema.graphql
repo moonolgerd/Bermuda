@@ -1,0 +1,30 @@
+enum IncidentStatus {
+  OPEN
+  INVESTIGATING
+  CLOSED
+}
+
+enum IncidentPriority {
+  LOW
+  MEDIUM
+  HIGH
+  CRITICAL
+}
+
+type Incident {
+  id: String!
+  location: String!
+  description: String!
+  date: Date!
+  status: IncidentStatus!
+  priority: IncidentPriority!
+  witnesses: Int!
+}
+
+type Query {
+  incidents: [Incident!]!
+  incident(id: String!): Incident
+}
+
+"The `Date` scalar type represents a date (ISO 8601 format)."
+scalar Date

@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256">
+  <defs>
+    <linearGradient id="ocean" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#0ea5e9"/>
+      <stop offset="100%" stop-color="#0f766e"/>
+    </linearGradient>
+    <linearGradient id="tri" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%"   stop-color="#38bdf8"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="6" flood-color="#00000033"/>
+    </filter>
+  </defs>
+
+  <!-- Background circle -->
+  <circle cx="128" cy="128" r="120" fill="url(#ocean)" filter="url(#shadow)"/>
+
+  <!-- Bermuda triangle — outer -->
+  <polygon points="128,44 220,196 36,196" fill="none" stroke="white" stroke-width="6" stroke-linejoin="round" opacity="0.35"/>
+
+  <!-- Bermuda triangle — filled inner (rotated) -->
+  <polygon points="128,72 200,180 56,180" fill="url(#tri)" opacity="0.85" stroke="white" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Small inverted triangle cutout -->
+  <polygon points="128,148 104,112 152,112" fill="url(#ocean)" opacity="0.9"/>
+
+  <!-- Letter B -->
+  <text x="128" y="198" font-family="'Segoe UI',system-ui,sans-serif" font-size="42" font-weight="700"
+        fill="white" text-anchor="middle" opacity="0.0">B</text>
+</svg>

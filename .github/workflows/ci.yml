@@ -1,0 +1,180 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*.*.*.*']
+  pull_request:
+    branches: [main]
+
+jobs:
+  # ─── Build, lint, unit tests ──────────────────────────────────────────────
+  build:
+    name: Build & test
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install frontend deps
+        working-directory: src/Bermuda.Web
+        run: pnpm install --frozen-lockfile
+
+      - name: Build .NET solution
+        run: dotnet build Bermuda.slnx --configuration Release
+
+      - name: Lint
+        working-directory: src/Bermuda.Web
+        run: pnpm lint
+
+      - name: Frontend unit tests
+        working-directory: src/Bermuda.Web
+        run: pnpm test --run
+
+      - name: Build frontend
+        working-directory: src/Bermuda.Web
+        run: pnpm build
+
+  # ─── E2E (requires a Windows desktop runner) ──────────────────────────────
+  #
+  # The Playwright tests connect to the live app via CDP (port 9222).
+  # The WPF host must render a real window, which requires an interactive
+  # desktop session — use a self-hosted runner on a Windows 10/11 machine
+  # with the WebView2 Runtime and .NET 10 installed.
+  #
+  # To register a self-hosted runner:
+  #   https://docs.github.com/en/actions/hosting-your-own-runners
+  e2e:
+    name: E2E tests
+    needs: build
+    runs-on: self-hosted
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install frontend deps
+        working-directory: src/Bermuda.Web
+        run: pnpm install --frozen-lockfile
+
+      - name: Install Playwright browsers
+        working-directory: src/Bermuda.Web
+        run: pnpm exec playwright install chromium
+
+      - name: Run E2E tests
+        working-directory: src/Bermuda.Web
+        run: pnpm e2e --reporter=list
+
+      - name: Upload Playwright report
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report
+          path: src/Bermuda.Web/playwright-report/
+          retention-days: 7
+
+  # ─── MSIX publish (runs only on version tags: v1.2.3.4) ───────────────────
+  publish:
+    name: Publish MSIX
+    needs: build
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '10.0.x'
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Enable pnpm
+        run: corepack enable pnpm
+
+      - name: Install frontend deps
+        working-directory: src/Bermuda.Web
+        run: pnpm install --frozen-lockfile
+
+      - name: Build frontend
+        working-directory: src/Bermuda.Web
+        run: pnpm build
+
+      # Derive MSIX version from tag (strips leading 'v')
+      - name: Derive MSIX version
+        id: ver
+        shell: pwsh
+        run: |
+          $tag = "${{ github.ref_name }}"
+          $version = $tag.TrimStart('v')
+          echo "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Import signing certificate
+        if: env.MSIX_CERT_BASE64 != ''
+        env:
+          MSIX_CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $bytes = [Convert]::FromBase64String($env:MSIX_CERT_BASE64)
+          $pfxPath = Join-Path $env:RUNNER_TEMP "signing.pfx"
+          [IO.File]::WriteAllBytes($pfxPath, $bytes)
+          $cert = Import-PfxCertificate -FilePath $pfxPath `
+            -CertStoreLocation Cert:\CurrentUser\My `
+            -Password (ConvertTo-SecureString $env:MSIX_CERT_PASSWORD -AsPlainText -Force)
+          echo "MSIX_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+
+      - name: Create MSIX
+        shell: pwsh
+        run: |
+          $args = @(
+            "src/Bermuda",
+            "-t:CreateMsix",
+            "-p:Configuration=Release",
+            "-p:MsixVersion=${{ steps.ver.outputs.version }}"
+          )
+          if ($env:MSIX_THUMBPRINT) {
+            $args += "-p:MsixSigningCertThumbprint=$env:MSIX_THUMBPRINT"
+          }
+          dotnet msbuild @args
+
+      - name: Upload MSIX artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Bermuda-msix-${{ steps.ver.outputs.version }}
+          path: artifacts/msix/*.msix
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/msix/*.msix
+          generate_release_notes: true

@@ -1,0 +1,31 @@
+# Copilot
+.copilot-specs-cache/
+
+# Build outputs
+artifacts/
+
+# Playwright MCP screenshots
+.playwright-mcp/
+**/bin/
+**/obj/
+
+# .NET
+*.user
+*.suo
+.vs/
+*.nupkg
+
+# Node / frontend
+node_modules/
+src/Bermuda.Web/dist/
+src/Bermuda.Web/.vite/
+
+# Environment & secrets
+.env
+.env.local
+appsettings.*.json
+!appsettings.json
+
+# OS
+Thumbs.db
+.DS_Store
