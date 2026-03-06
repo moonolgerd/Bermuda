@@ -42,7 +42,7 @@ jobs:
 
       - name: Frontend unit tests
         working-directory: src/Bermuda.Web
-        run: pnpm test --run
+        run: pnpm test --run --passWithNoTests
 
       - name: Build frontend
         working-directory: src/Bermuda.Web

@@ -2,15 +2,161 @@
 
 ## Project Overview
 
-Bermuda is a Windows 10/11 desktop application that uses Microsoft WebView2 to host a web-based UI inside a native WPF shell. The native host handles OS integration (window management, tray icon, file I/O, system APIs), while the frontend is a modern web app running inside the WebView2 control.
+Bermuda is a Windows 10/11 desktop application that uses Microsoft WebView2 to host a web-based UI inside a native WPF shell. It tracks incidents in the Bermuda Triangle. The native host handles OS integration (window management, dark title bar, file I/O), while the frontend is a React + Relay app running inside WebView2. A Hot Chocolate GraphQL API serves the data.
 
 ## Tech Stack
 
-- **Native host**: C# (.NET 10+) with WPF, using the `Microsoft.Web.WebView2` NuGet package
-- **Aspire orchestrator**: `Bermuda.AppHost` (.NET Aspire app host) wires up the WPF host and any backend services; used for local development orchestration
-- **Frontend**: TypeScript + React (Vite), compiled to static assets served from the app bundle
-- **IPC**: WebView2 `PostWebMessageAsJson` / `chrome.webview.postMessage` for host ↔ web communication; `AddHostObjectToScript` for synchronous host object exposure
-- **Packaging**: Self-contained MSIX via `dotnet msbuild -t:CreateMsix`; uses `Microsoft.Windows.SDK.BuildTools` (`MakeAppx.exe`) and `Package.appxmanifest` in `Bermuda.Package/`; targets Windows 10 1903+ (build 18362)
+- **Native host**: C# (.NET 10) with WPF; `Microsoft.Web.WebView2` NuGet package; dark Win32 title bar via `DwmSetWindowAttribute(DWMWA_USE_IMMERSIVE_DARK_MODE)`; `WPF-UI` 4.x (lepo.co) for Fluent theme resource dictionaries
+- **API**: ASP.NET Core (.NET 10) with Hot Chocolate GraphQL; `Incident` record with `IncidentStatus` and `IncidentPriority` enums
+- **Aspire orchestrator**: `Bermuda.AppHost` wires up the WPF host, API, Vite dev server, and Relay watch compiler
+- **Frontend**: TypeScript + React 19 + Vite 5; Relay 20 for GraphQL queries; `react-leaflet` 5 + `leaflet` for the map; CSS Modules for styling
+- **IPC**: `PostWebMessageAsJson` / `chrome.webview.postMessage` for host ↔ web; UUID correlation map for request/response
+- **Packaging**: Self-contained MSIX via `dotnet msbuild -t:CreateMsix`; `Microsoft.Windows.SDK.BuildTools` (`MakeAppx.exe`); `Package.appxmanifest` in `src/Bermuda/`; targets Windows 10 1903+ (build 18362)
+- **CI**: GitHub Actions — `build` job on `windows-latest`; `e2e` job on `self-hosted` Windows runner; `publish` job on `v*.*.*.*` tags produces a signed MSIX GitHub Release
+
+## Repository Structure
+
+```
+Bermuda/
+├── src/
+│   ├── Bermuda.AppHost/         # .NET Aspire app host (AppHost.cs)
+│   ├── Bermuda.ServiceDefaults/ # Shared Aspire service defaults
+│   ├── Bermuda/                 # WPF native host
+│   │   ├── MainWindow.xaml(.cs) # Window + WebView2 lifecycle + DWM dark title bar
+│   │   ├── App.xaml(.cs)        # WPF-UI ThemesDictionary (dark), app startup
+│   │   ├── HostBridge.cs        # IPC command dispatcher
+│   │   ├── IpcRequest.cs
+│   │   ├── Assets/              # app.ico (multi-size), MSIX tile images, logo.svg
+│   │   └── Package.appxmanifest
+│   ├── Bermuda.Api/             # ASP.NET Core + Hot Chocolate GraphQL
+│   │   └── GraphQL/
+│   │       ├── Incident.cs      # record + IncidentStatus/IncidentPriority enums
+│   │       ├── IncidentRepository.cs  # 8 seeded incidents
+│   │       └── IncidentQuery.cs
+│   └── Bermuda.Web/             # Vite + React 19 + TypeScript frontend
+│       ├── src/
+│       │   ├── bridge/          # bermudaHost.invoke() IPC wrapper
+│       │   ├── components/
+│       │   │   ├── IncidentsDashboard.tsx  # Relay query root, selectedId state
+│       │   │   ├── IncidentsTable.tsx      # Sortable table with priority/status badges
+│       │   │   └── IncidentMap.tsx         # react-leaflet 5, CartoDB dark tiles
+│       │   ├── types.ts         # IncidentItem type alias from Relay generated types
+│       │   └── __generated__/   # Relay-generated TypeScript (do not edit)
+│       ├── e2e/
+│       │   ├── fixtures.ts      # CDP fixture — connects to WebView2 on port 9222
+│       │   └── incidents.spec.ts
+│       ├── playwright.config.ts # webServer: aspire run, url: localhost:9222/json
+│       └── vite.config.ts       # test.exclude: ['e2e/**'] keeps Vitest away from Playwright specs
+├── artifacts/                   # Build outputs (gitignored)
+├── Bermuda.slnx
+└── .github/
+    ├── workflows/ci.yml
+    └── copilot-instructions.md
+```
+
+## Build & Run
+
+```powershell
+# Install frontend dependencies (pnpm is required)
+cd src/Bermuda.Web && pnpm install
+
+# Run the full stack via Aspire (API + Vite dev server + Relay watch + WPF host)
+aspire run
+
+# Run E2E tests (app must be running, or let playwright.config.ts start it)
+cd src/Bermuda.Web && pnpm e2e
+
+# Build frontend only
+pnpm build   # relay-compiler → tsc → vite build
+
+# Create a self-contained MSIX installer (output: artifacts/msix/)
+dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
+#   -p:MsixVersion=1.2.3.0 -p:MsixSigningCertThumbprint=<thumbprint>
+```
+
+AppHost wires up:
+- `Bermuda.Api` — GraphQL API (port assigned by Aspire; `VITE_API_URL` injected into Vite)
+- `Bermuda.Web` — Vite dev server on port 5555 (`WEB_URL` injected into WPF host)
+- `relay` — `pnpm run relay:watch` watching the API schema URL
+- `Bermuda` (WPF host) — `WEB_URL=<vite>`, `CDP_PORT=9222`
+
+## Coding Conventions
+
+### .NET Aspire (AppHost)
+- Entry point is `src/Bermuda.AppHost/AppHost.cs`
+- `AddViteApp("web", "../Bermuda.Web").WithPnpm().WithEnvironment("PORT", "5555")`
+- Pass `VITE_API_URL` to the Vite app so the frontend knows the GraphQL endpoint
+- Pass `WEB_URL` and `CDP_PORT` to the WPF host via `.WithEnvironment()`
+- Use `.WaitFor(api)` / `.WaitFor(web)` to enforce startup order
+
+### C# (Host & API)
+- Target `net10.0-windows` for WPF; `net10.0` for the API
+- WebView2: all calls after `EnsureCoreWebView2Async()` only; UI-thread dispatch via `Dispatcher.Invoke`
+- Dark title bar: `DwmSetWindowAttribute(hwnd, 20, ref dark=1, 4)` in `OnLoaded`
+- Do NOT use `FluentWindow` / `ExtendsContentIntoTitleBar` — WebView2's child HWND swallows resize hit-test messages
+- `HostBridge` methods must be `[ComVisible(true)]`, wrapped in try/catch, never throw
+- Prefer `System.Text.Json` records; avoid Newtonsoft.Json
+
+### TypeScript / React (Frontend)
+- React 19 functional components, strict TypeScript
+- Global state: React context + `useReducer`; local state: `useState`
+- All GraphQL data comes through Relay (`src/__generated__/`); run `pnpm relay` after schema changes
+- Query in `IncidentsDashboard.tsx` must be named `IncidentsDashboardQuery` (Relay requires query name = module name)
+- All host bridge calls through `bermudaHost.invoke()` — never call `window.chrome.webview` directly in components
+- CSS Modules only; no inline styles except dynamic values; no semicolons (`"semi": ["error", "never"]` in ESLint)
+
+### Relay
+- Schema lives at `src/Bermuda.Web/schema.graphql` — update it when the API changes, then run `pnpm relay`
+- Generated files in `src/__generated__/` are committed; do not edit them manually
+- `relay:watch` is managed by Aspire during development; `relay:schema` downloads a fresh schema from the running API
+
+## E2E Testing
+
+Playwright connects to the live WebView2 via CDP on port 9222 — no separate browser process.
+
+```typescript
+// e2e/fixtures.ts — overrides the `page` fixture
+const browser = await chromium.connectOverCDP('http://localhost:9222')
+const page = browser.contexts()[0].pages()[0]
+// Reloads only when sort state has drifted (avoids flicker on every test)
+const sort = await page.locator('thead th').first().getAttribute('aria-sort')
+if (sort !== 'ascending') { await page.reload(); ... }
+await provide(page)
+// Never call browser.close() — it would kill the WebView2 host process
+```
+
+- `playwright.config.ts` sets `webServer: { command: 'aspire run', cwd: '../..', url: 'http://localhost:9222/json', reuseExistingServer: true }`
+- `vite.config.ts` sets `test.exclude: ['e2e/**']` so Vitest never picks up Playwright specs
+- Run with `pnpm e2e` (Playwright) not `pnpm test` (Vitest)
+
+## CI (`.github/workflows/ci.yml`)
+
+| Job | Runner | Trigger | Does |
+|---|---|---|---|
+| `build` | `windows-latest` | every push/PR | dotnet build, lint, Vitest, pnpm build |
+| `e2e` | `self-hosted` | after `build` | full stack via `aspire run`, 22 Playwright tests |
+| `publish` | `windows-latest` | `v*.*.*.*` tags | CreateMsix, GitHub Release with `.msix` asset |
+
+Self-hosted runner needed for `e2e` because WebView2 requires an interactive desktop session.
+
+MSIX signing: add `MSIX_CERT_BASE64` (base64 PFX) and `MSIX_CERT_PASSWORD` secrets to the repo; CI imports the cert and passes the thumbprint to `SignTool` automatically.
+
+## Security
+
+- `AreDefaultContextMenusEnabled = false` and `AreDevToolsEnabled = false` in Release builds
+- Validate and allowlist all IPC command names in `HostBridge`
+- Never pass unsanitised JS input into C# file paths or shell commands
+- Do not expose sensitive .NET APIs via `AddHostObjectToScript`
+
+## Common Pitfalls
+
+- `CoreWebView2` is only available after `EnsureCoreWebView2Async()` — await before any use
+- Do not use `FluentWindow` with `ExtendsContentIntoTitleBar` + WebView2 — resize breaks
+- Relay query name must match the module filename (e.g. `IncidentsDashboardQuery` in `IncidentsDashboard.tsx`)
+- `pnpm test` runs Vitest; `pnpm e2e` runs Playwright — never mix them
+- `browser.close()` in the CDP fixture would terminate the host process — omit it intentionally
+- WPF projects must target `net10.0-windows`; the solution file is `Bermuda.slnx` (not `.sln`)
+
 
 ## Repository Structure
 
@@ -164,5 +310,5 @@ window.chrome.webview.addEventListener('message', (e) => {
 - WebView2 `NavigationCompleted` fires before scripts are ready; use `DOMContentLoaded` message from the web layer to signal readiness
 - MSIX packaging requires the WebView2 Runtime to be declared as a dependency in the manifest, or use the fixed-version runtime distribution
 - Hot reload in development is handled by the Vite dev server managed by Aspire; the WPF host reads `WEB_URL` from its environment to know which origin to load
-- Aspire manages the Vite dev server via `AddViteApp` — no need to start `npm run dev` manually when using `dotnet run --project src/Bermuda.AppHost`
+- Aspire manages the Vite dev server via `AddViteApp` — no need to start `npm run dev` manually when using `aspire run`
 - WPF projects must target `net10.0-windows` (not `net10.0`) in their `.csproj`; Aspire's app host must also reference the Windows TFM project correctly

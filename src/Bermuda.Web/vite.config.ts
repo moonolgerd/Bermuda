@@ -9,4 +9,7 @@ export default defineConfig({
     port: parseInt(process.env.PORT ?? '5555'),
     strictPort: true,
   },
+  test: {
+    exclude: ['e2e/**', '**/node_modules/**'],
+  },
 })

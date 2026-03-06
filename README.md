@@ -25,7 +25,7 @@ A Windows 10/11 desktop application built with a WPF/WebView2 native host, a .NE
 └─────────────────────────────────────────┘
           orchestrated by
 ┌─────────────────────────────────────────┐
-│  Bermuda.AppHost  (.NET Aspire 9)       │
+│  Bermuda.AppHost  (.NET Aspire 13)      │
 │  • Vite dev server (port 5555)          │
 │  • Relay watch compiler                 │
 │  • Aspire dashboard (port 18888)        │
@@ -34,10 +34,6 @@ A Windows 10/11 desktop application built with a WPF/WebView2 native host, a .NE
 
 ## Features
 
-- **Incidents table** — sortable columns: Date, Location, Description, Status, Priority, Witnesses
-- **Priority badges** — Low / Medium / High / Critical with colour coding
-- **Status badges** — Open / Investigating / Closed
-- **Interactive map** — CartoDB dark tiles, click a row to fly-to and highlight the marker
 - **Dark theme** — dark Win32 title bar via DWMWA_USE_IMMERSIVE_DARK_MODE
 - **GraphQL + Relay** — type-safe queries with auto-generated TypeScript types
 
