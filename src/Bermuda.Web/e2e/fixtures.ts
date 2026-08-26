@@ -7,7 +7,7 @@ import type { Page } from '@playwright/test'
  * (Aspire-managed Vite + GraphQL API) without needing a separate web server.
  */
 export const test = base.extend<{ page: Page }>({
-  // eslint-disable-next-line no-empty-pattern
+  // biome-ignore lint/correctness/noEmptyPattern: Playwright's fixture signature requires this shape.
   page: async ({}, provide: (page: Page) => Promise<void>) => {
     const browser = await chromium.connectOverCDP('http://localhost:9222')
     const context = browser.contexts()[0]

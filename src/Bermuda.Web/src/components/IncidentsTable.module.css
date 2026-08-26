@@ -59,8 +59,9 @@
   cursor: pointer;
 }
 
-.selectedRow {
-  background: #0ea5e915 !important;
+/* Matches .table tbody tr:hover's specificity so this wins on the tie (it's declared after it), without !important. */
+.table tbody tr.selectedRow {
+  background: #0ea5e915;
   outline: 1px solid #0ea5e940;
   outline-offset: -1px;
 }

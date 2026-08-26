@@ -22,20 +22,58 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="Microsoft.Web.WebView2" Version="1.0.3240.44" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
-    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
+    <PackageReference Include="Microsoft.Web.WebView2" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
+    <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
     <!--
       Provides MakeAppx.exe and SignTool.exe for the CreateMsix target.
       GeneratePathProperty exposes $(PkgMicrosoft_Windows_SDK_BuildTools).
     -->
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" PrivateAssets="all" GeneratePathProperty="true" />
-    <PackageReference Include="WPF-UI" Version="4.2.0" />
+    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" PrivateAssets="all" GeneratePathProperty="true" />
+    <PackageReference Include="WPF-UI" />
   </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Bermuda.ServiceDefaults\Bermuda.ServiceDefaults.csproj" />
   </ItemGroup>
+
+  <!--
+    IPC contract + TypeScript codegen
+    =================================
+    Bermuda.IpcContract is the single source of truth for the Web<->host contract:
+    [IpCommand] marks a postMessage command (see HostBridge), [IpcHostObject]
+    marks a class projected via CoreWebView2.AddHostObjectToScript (see
+    WindowScriptHost). Bermuda.IpcContract.SourceGenerator runs as an analyzer
+    against this project — it discovers both attributes and writes the matching
+    TypeScript into the frontend's __generated__ folder (IpcOutputPath below).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.IpcContract\Bermuda.IpcContract.csproj" />
+    <ProjectReference Include="..\Bermuda.IpcContract.SourceGenerator\Bermuda.IpcContract.SourceGenerator.csproj"
+                       OutputItemType="Analyzer"
+                       ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <PropertyGroup>
+    <IpcOutputPath>$(MSBuildProjectDirectory)\..\Bermuda.Web\src\__generated__\ipc.d.ts</IpcOutputPath>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <CompilerVisibleProperty Include="IpcOutputPath" />
+  </ItemGroup>
+
+  <!--
+    ipc.d.ts is written by the generator as a side effect of CoreCompile
+    running — it isn't a tracked MSBuild output. So if it's missing (deleted,
+    or never generated) but no .cs file changed, MSBuild's incremental build
+    sees the project as up to date and skips CoreCompile — and skips the
+    generator with it — leaving the file missing after a "successful" build.
+    Deleting MSBuild's own up-to-date marker forces CoreCompile to actually
+    run whenever ipc.d.ts isn't there.
+  -->
+  <Target Name="EnsureIpcTypesGenerated" BeforeTargets="CoreCompile" Condition="!Exists('$(IpcOutputPath)')">
+    <Delete Files="$(IntermediateOutputPath)$(MSBuildProjectFile).CoreCompileInputs.cache" Condition="Exists('$(IntermediateOutputPath)$(MSBuildProjectFile).CoreCompileInputs.cache')" />
+  </Target>
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />

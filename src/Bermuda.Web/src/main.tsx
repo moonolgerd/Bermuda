@@ -5,7 +5,10 @@ import { relayEnvironment } from './graphql/client'
 import './index.css'
 import App from './App.tsx'
 
-createRoot(document.getElementById('root')!).render(
+const rootElement = document.getElementById('root')
+if (!rootElement) throw new Error('#root element not found')
+
+createRoot(rootElement).render(
   <StrictMode>
     <RelayEnvironmentProvider environment={relayEnvironment}>
       <App />

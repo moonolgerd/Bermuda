@@ -1,5 +1,4 @@
 using System.Runtime.InteropServices;
-using System.Text.Json;
 
 namespace Bermuda;
 
@@ -7,10 +6,10 @@ namespace Bermuda;
 [ComVisible(true)]
 public class HostBridge
 {
-    private static readonly HashSet<string> AllowedCommands = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "ping",
-    };
+    // Allow-list is derived from the contract so the host and the generated
+    // TypeScript can never drift apart.
+    private static readonly HashSet<string> AllowedCommands = new(
+        Bermuda.IpcContract.IpcContract.Commands.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
 
     public async Task<object?> HandleAsync(string command, object? payload)
     {

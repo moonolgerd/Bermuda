@@ -102,8 +102,8 @@ AppHost wires up:
 - Global state: React context + `useReducer`; local state: `useState`
 - All GraphQL data comes through Relay (`src/__generated__/`); run `pnpm relay` after schema changes
 - Query in `IncidentsDashboard.tsx` must be named `IncidentsDashboardQuery` (Relay requires query name = module name)
-- All host bridge calls through `bermudaHost.invoke()` — never call `window.chrome.webview` directly in components
-- CSS Modules only; no inline styles except dynamic values; no semicolons (`"semi": ["error", "never"]` in ESLint)
+- String-command IPC goes through `bermudaHost.invoke()`. Window control goes through the `chrome.webview.hostObjects.windowController` host object (see `WindowScriptHost.cs`) — call it directly for anything with no extra logic; `bermudaHost.window` only wraps calls that combine requests, default a param, or narrow a type (see README's "Window control" section)
+- CSS Modules only; no inline styles except dynamic values; no semicolons (convention only — not linted; Biome's formatter is disabled, see `biome.json`)
 
 ### Relay
 - Schema lives at `src/Bermuda.Web/schema.graphql` — update it when the API changes, then run `pnpm relay`
