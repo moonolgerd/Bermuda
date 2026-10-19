@@ -9,7 +9,7 @@ namespace Bermuda;
 /// <c>chrome.webview.hostObjects.windowController</c> in JS, so no command
 /// dispatch is needed to drive the window from React. The [IpcHostObject]
 /// attribute tells Bermuda.IpcContract.SourceGenerator to reflect this class
-/// and emit the matching TypeScript into src/__generated__/ipc.d.ts.
+/// and emit the matching TypeScript into src/ipc/__generated__/ipc.d.ts.
 /// </summary>
 [IpcHostObject("windowController")]
 [ClassInterface(ClassInterfaceType.AutoDual)]

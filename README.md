@@ -71,6 +71,7 @@ src/
     │   │   ├── IncidentsDashboard.tsx   # Relay query root, selection state
     │   │   ├── IncidentsTable.tsx       # Sortable table
     │   │   └── IncidentMap.tsx          # react-leaflet map
+    │   ├── ipc/__generated__/ # ipc.d.ts from Bermuda.IpcContract.SourceGenerator
     │   └── __generated__/ # Relay-generated TypeScript types
     └── e2e/               # Playwright E2E tests (CDP, no web server needed)
 ```
@@ -144,6 +145,6 @@ window.chrome.webview.hostObjects.windowController.SetProgressValue(0.6); // 0�
 
 ### Contract + codegen
 
-`Bermuda.IpcContract` is the single source of truth for all three: `[IpCommand]` marks an `invoke()` command (e.g. `ping`), `[IpcHostObject]` marks a class projected via `AddHostObjectToScript` (e.g. `WindowScriptHost`), and `[IpcType]` marks a plain record/enum whose shape should be generated even though nothing else references it — e.g. `WindowStateSnapshot` (what `getState()` assembles by hand, since WebView2 host-object methods can't return nested structured data directly) or `TaskbarProgressState` (the valid strings for `SetProgressState`, converted by name to WPF's own enum in `MainWindow`). `Bermuda.IpcContract.SourceGenerator` runs as an analyzer on the `Bermuda` project, reflects all three attributes, and writes `src/Bermuda.Web/src/__generated__/ipc.d.ts` on every build — that file is committed (it's small, and it lets the frontend build without needing a prior `dotnet build`, e.g. in CI's MSIX publish job).
+`Bermuda.IpcContract` is the single source of truth for all three: `[IpCommand]` marks an `invoke()` command (e.g. `ping`), `[IpcHostObject]` marks a class projected via `AddHostObjectToScript` (e.g. `WindowScriptHost`), and `[IpcType]` marks a plain record/enum whose shape should be generated even though nothing else references it — e.g. `WindowStateSnapshot` (what `getState()` assembles by hand, since WebView2 host-object methods can't return nested structured data directly) or `TaskbarProgressState` (the valid strings for `SetProgressState`, converted by name to WPF's own enum in `MainWindow`). `Bermuda.IpcContract.SourceGenerator` runs as an analyzer on the `Bermuda` project, reflects all three attributes, and writes `src/Bermuda.Web/src/ipc/__generated__/ipc.d.ts` on every build (deliberately not Relay's `src/__generated__/` artifact directory, which `relay-compiler` prunes of files it didn't generate) — that file is committed (it's small, and it lets the frontend build without needing a prior `dotnet build`, e.g. in CI's MSIX publish job).
 
 If you're touching any hand-written type in `bridge/index.ts` that mirrors a C# shape, check whether it can be `[IpcType]`-generated instead — that's how `IpcRequest`/`HostResponse`/`WindowStateSnapshot`/`TaskbarProgressState` all ended up there, replacing what used to be hand-duplicated (and, in one case — `HostResponse`'s casing — actually mismatched) interfaces.

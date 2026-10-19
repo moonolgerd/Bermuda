@@ -41,6 +41,7 @@ Bermuda/
 │       │   │   ├── IncidentsTable.tsx      # Sortable table with priority/status badges
 │       │   │   └── IncidentMap.tsx         # react-leaflet 5, CartoDB dark tiles
 │       │   ├── types.ts         # IncidentItem type alias from Relay generated types
+│       │   ├── ipc/__generated__/  # ipc.d.ts from the IPC source generator (do not edit)
 │       │   └── __generated__/   # Relay-generated TypeScript (do not edit)
 │       ├── e2e/
 │       │   ├── fixtures.ts      # CDP fixture — connects to WebView2 on port 9222

@@ -15,7 +15,7 @@ public partial class MainWindow : Window, IWindowController
 {
     // System.Text.Json's default is to preserve C# property names as-is
     // (PascalCase); the web side expects camelCase (matches the generated
-    // TS shapes in src/__generated__/ipc.d.ts), so every host->web message
+    // TS shapes in src/ipc/__generated__/ipc.d.ts), so every host->web message
     // goes through this.
     private static readonly JsonSerializerOptions HostToWebJson = new()
     {
