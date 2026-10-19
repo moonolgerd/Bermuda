@@ -13,7 +13,7 @@ namespace Bermuda.IpcContract.SourceGenerator;
 /// declarations and the C# record types they reference, maps them to TypeScript,
 /// and emits:
 ///   • the file named by the consuming project's <c>IpcOutputPath</c> MSBuild
-///     property (typically <c>src/__generated__/ipc.d.ts</c> in the frontend), and
+///     property (typically <c>src/ipc/__generated__/ipc.d.ts</c> in the frontend), and
 ///   • an embedded <c>internal const string</c> as a compile-time safety net.
 ///
 /// [IpCommand] marks a command on the <c>invoke()</c> postMessage channel and

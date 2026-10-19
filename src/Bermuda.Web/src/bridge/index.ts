@@ -1,4 +1,4 @@
-import type { HostResponse, IpcRequest, TaskbarProgressState, WindowStateSnapshot } from '../__generated__/ipc'
+import type { HostResponse, IpcRequest, TaskbarProgressState, WindowStateSnapshot } from '../ipc/__generated__/ipc'
 
 export type { TaskbarProgressState }
 

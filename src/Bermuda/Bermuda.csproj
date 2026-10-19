@@ -45,7 +45,9 @@
     marks a class projected via CoreWebView2.AddHostObjectToScript (see
     WindowScriptHost). Bermuda.IpcContract.SourceGenerator runs as an analyzer
     against this project — it discovers both attributes and writes the matching
-    TypeScript into the frontend's __generated__ folder (IpcOutputPath below).
+    TypeScript into the frontend (src/ipc/__generated__, IpcOutputPath below —
+    deliberately outside Relay's artifactDirectory, which deletes files it
+    didn't generate).
   -->
   <ItemGroup>
     <ProjectReference Include="..\Bermuda.IpcContract\Bermuda.IpcContract.csproj" />
@@ -55,7 +57,7 @@
   </ItemGroup>
 
   <PropertyGroup>
-    <IpcOutputPath>$(MSBuildProjectDirectory)\..\Bermuda.Web\src\__generated__\ipc.d.ts</IpcOutputPath>
+    <IpcOutputPath>$(MSBuildProjectDirectory)\..\Bermuda.Web\src\ipc\__generated__\ipc.d.ts</IpcOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
