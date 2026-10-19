@@ -5,9 +5,9 @@ namespace Bermuda.Fdc3;
 
 /// <summary>
 /// An in-process FDC3 2.2 Desktop Agent. Every WebView2 page the host shows
-/// is one connected app instance (<see cref="Connect"/>); the page's
-/// <c>window.fdc3</c> sends <c>fdc3.*</c> commands which the host routes to
-/// <see cref="HandleAsync"/>, and deliveries come back through that
+/// is one connected app instance: <see cref="Connect"/> returns its
+/// <see cref="Fdc3Connection"/>, which the host dispatches that page's
+/// <c>fdc3.*</c> commands to, and deliveries come back through the
 /// instance's <see cref="IFdc3AppSink"/>.
 ///
 /// Supported: user channels (the 8 FDC3 recommended channels), app channels,
@@ -26,12 +26,7 @@ public sealed class DesktopAgent
     public const string Fdc3Version = "2.2";
     public const string ProviderName = "Bermuda";
 
-    private static readonly JsonSerializerOptions Json = new()
-    {
-        PropertyNameCaseInsensitive = true,
-    };
-
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly AppDirectory _directory;
     private readonly IFdc3AppLauncher? _launcher;
     private readonly TimeSpan _launchTimeout;
@@ -71,23 +66,24 @@ public sealed class DesktopAgent
 
     // Connection lifecycle ---------------------------------------------------
 
-    /// <summary>Registers a new app instance. Pass the <c>instanceId</c> the launcher was given, if any.</summary>
-    public Fdc3AppIdentifier Connect(string appId, IFdc3AppSink sink, string? instanceId = null)
+    /// <summary>
+    /// Registers a new app instance. Pass the <c>instanceId</c> the launcher
+    /// was given, if any. Dispose the connection when the page goes away.
+    /// </summary>
+    public Fdc3Connection Connect(string appId, IFdc3AppSink sink, string? instanceId = null)
     {
         instanceId ??= Guid.NewGuid().ToString();
         lock (_gate)
         {
-            if (_instances.ContainsKey(instanceId))
+            if (!_instances.TryAdd(instanceId, new AppInstance(appId, instanceId, sink)))
                 throw new InvalidOperationException($"FDC3 instance '{instanceId}' is already connected.");
-
-            _instances[instanceId] = new AppInstance(appId, instanceId, sink);
         }
 
-        return new Fdc3AppIdentifier(appId, instanceId);
+        return new Fdc3Connection(this, appId, instanceId);
     }
 
     /// <summary>Removes an instance (its window closed or navigated away) and everything it owned.</summary>
-    public void Disconnect(string instanceId)
+    internal void Disconnect(string instanceId)
     {
         var outbox = new Outbox();
         List<PendingResult> orphanedResults;
@@ -120,60 +116,9 @@ public sealed class DesktopAgent
             delivery.Delivered.TrySetResult(false);
     }
 
-    // Command dispatch -----------------------------------------------------------
-
-    /// <summary>
-    /// Handles one <c>fdc3.*</c> command from <paramref name="instanceId"/>.
-    /// Throws <see cref="Fdc3Exception"/> for FDC3-level errors.
-    /// </summary>
-    public async Task<object?> HandleAsync(string instanceId, string command, JsonElement? payload)
-    {
-        var caller = GetInstance(instanceId);
-
-        switch (command)
-        {
-            case "fdc3.getInfo": return GetInfo(caller);
-            case "fdc3.getUserChannels": return GetUserChannels();
-            case "fdc3.joinUserChannel": JoinUserChannel(caller, Read<Fdc3ChannelIdRequest>(payload).ChannelId); return null;
-            case "fdc3.leaveCurrentChannel": LeaveCurrentChannel(caller); return null;
-            case "fdc3.getCurrentChannel": return GetCurrentChannel(caller);
-            case "fdc3.getOrCreateChannel": return GetOrCreateChannel(Read<Fdc3ChannelIdRequest>(payload).ChannelId);
-            case "fdc3.createPrivateChannel": return CreatePrivateChannel(caller);
-            case "fdc3.disconnectPrivateChannel": DisconnectPrivateChannel(caller, Read<Fdc3ChannelIdRequest>(payload).ChannelId); return null;
-            case "fdc3.broadcast": Broadcast(caller, Read<Fdc3BroadcastRequest>(payload)); return null;
-            case "fdc3.getCurrentContext": return GetCurrentContext(caller, Read<Fdc3GetCurrentContextRequest>(payload));
-            case "fdc3.addContextListener": AddContextListener(caller, Read<Fdc3AddContextListenerRequest>(payload)); return null;
-            case "fdc3.addIntentListener": AddIntentListener(caller, Read<Fdc3AddIntentListenerRequest>(payload)); return null;
-            case "fdc3.addEventListener": AddEventListener(caller, Read<Fdc3AddEventListenerRequest>(payload)); return null;
-            case "fdc3.unsubscribe": Unsubscribe(caller, Read<Fdc3ListenerIdRequest>(payload).ListenerId); return null;
-            case "fdc3.findIntent": return FindIntent(Read<Fdc3FindIntentRequest>(payload));
-            case "fdc3.findIntentsByContext": return FindIntentsByContext(Read<Fdc3FindIntentsByContextRequest>(payload));
-            case "fdc3.findInstances": return FindInstances(Read<Fdc3AppIdentifier>(payload));
-            case "fdc3.getAppMetadata": return GetAppMetadata(Read<Fdc3AppIdentifier>(payload));
-            case "fdc3.open": return await OpenAsync(Read<Fdc3OpenRequest>(payload));
-            case "fdc3.raiseIntent": return await RaiseIntentAsync(caller, Read<Fdc3RaiseIntentRequest>(payload));
-            case "fdc3.raiseIntentForContext": return await RaiseIntentForContextAsync(caller, Read<Fdc3RaiseIntentForContextRequest>(payload));
-            case "fdc3.getIntentResult": return await GetIntentResultAsync(caller, Read<Fdc3ResultIdRequest>(payload).ResultId);
-            case "fdc3.sendIntentResult": SendIntentResult(caller, Read<Fdc3SendIntentResultRequest>(payload)); return null;
-            default: throw new Fdc3Exception(Fdc3Errors.InvalidArguments);
-        }
-    }
-
-    private static T Read<T>(JsonElement? payload) where T : class
-    {
-        try
-        {
-            return payload?.Deserialize<T>(Json) ?? throw new Fdc3Exception(Fdc3Errors.InvalidArguments);
-        }
-        catch (JsonException)
-        {
-            throw new Fdc3Exception(Fdc3Errors.InvalidArguments);
-        }
-    }
-
     // Metadata -------------------------------------------------------------------
 
-    private Fdc3ImplementationMetadata GetInfo(AppInstance caller) =>
+    internal Fdc3ImplementationMetadata GetInfo(AppInstance caller) =>
         new(
             Fdc3Version,
             ProviderName,
@@ -198,7 +143,7 @@ public sealed class DesktopAgent
             resultType);
     }
 
-    private Fdc3AppMetadata GetAppMetadata(Fdc3AppIdentifier app)
+    internal Fdc3AppMetadata GetAppMetadata(Fdc3AppIdentifier app)
     {
         lock (_gate)
         {
@@ -218,7 +163,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private Fdc3AppIdentifier[] FindInstances(Fdc3AppIdentifier app)
+    internal Fdc3AppIdentifier[] FindInstances(Fdc3AppIdentifier app)
     {
         lock (_gate)
         {
@@ -236,7 +181,7 @@ public sealed class DesktopAgent
 
     // Channels -------------------------------------------------------------------
 
-    private Fdc3ChannelInfo[] GetUserChannels()
+    internal Fdc3ChannelInfo[] GetUserChannels()
     {
         lock (_gate)
         {
@@ -244,7 +189,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private Fdc3ChannelInfo? GetCurrentChannel(AppInstance caller)
+    internal Fdc3ChannelInfo? GetCurrentChannel(AppInstance caller)
     {
         lock (_gate)
         {
@@ -252,7 +197,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private void JoinUserChannel(AppInstance caller, string channelId)
+    internal void JoinUserChannel(AppInstance caller, string channelId)
     {
         var outbox = new Outbox();
         lock (_gate)
@@ -276,7 +221,7 @@ public sealed class DesktopAgent
         outbox.Flush();
     }
 
-    private void LeaveCurrentChannel(AppInstance caller)
+    internal void LeaveCurrentChannel(AppInstance caller)
     {
         var outbox = new Outbox();
         lock (_gate)
@@ -300,7 +245,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private Fdc3ChannelInfo GetOrCreateChannel(string channelId)
+    internal Fdc3ChannelInfo GetOrCreateChannel(string channelId)
     {
         if (string.IsNullOrWhiteSpace(channelId))
             throw new Fdc3Exception(Fdc3Errors.CreationFailed);
@@ -320,7 +265,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private Fdc3ChannelInfo CreatePrivateChannel(AppInstance caller)
+    internal Fdc3ChannelInfo CreatePrivateChannel(AppInstance caller)
     {
         lock (_gate)
         {
@@ -331,7 +276,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private void DisconnectPrivateChannel(AppInstance caller, string channelId)
+    internal void DisconnectPrivateChannel(AppInstance caller, string channelId)
     {
         var outbox = new Outbox();
         lock (_gate)
@@ -388,7 +333,7 @@ public sealed class DesktopAgent
 
     // Context ----------------------------------------------------------------------
 
-    private void Broadcast(AppInstance caller, Fdc3BroadcastRequest request)
+    internal void Broadcast(AppInstance caller, Fdc3BroadcastRequest request)
     {
         var contextType = ContextTypeOf(request.Context);
         var context = request.Context.Clone();
@@ -424,7 +369,7 @@ public sealed class DesktopAgent
         outbox.Flush();
     }
 
-    private JsonElement? GetCurrentContext(AppInstance caller, Fdc3GetCurrentContextRequest request)
+    internal JsonElement? GetCurrentContext(AppInstance caller, Fdc3GetCurrentContextRequest request)
     {
         lock (_gate)
         {
@@ -432,7 +377,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private void AddContextListener(AppInstance caller, Fdc3AddContextListenerRequest request)
+    internal void AddContextListener(AppInstance caller, Fdc3AddContextListenerRequest request)
     {
         var outbox = new Outbox();
         var delivered = new List<PendingDelivery>();
@@ -477,7 +422,7 @@ public sealed class DesktopAgent
 
     // Listeners ----------------------------------------------------------------------
 
-    private void AddIntentListener(AppInstance caller, Fdc3AddIntentListenerRequest request)
+    internal void AddIntentListener(AppInstance caller, Fdc3AddIntentListenerRequest request)
     {
         var outbox = new Outbox();
         var delivered = new List<PendingDelivery>();
@@ -503,7 +448,7 @@ public sealed class DesktopAgent
         foreach (var pending in delivered) pending.Delivered.TrySetResult(true);
     }
 
-    private void AddEventListener(AppInstance caller, Fdc3AddEventListenerRequest request)
+    internal void AddEventListener(AppInstance caller, Fdc3AddEventListenerRequest request)
     {
         lock (_gate)
         {
@@ -530,7 +475,7 @@ public sealed class DesktopAgent
         _listeners.Add(listener);
     }
 
-    private void Unsubscribe(AppInstance caller, string listenerId)
+    internal void Unsubscribe(AppInstance caller, string listenerId)
     {
         var outbox = new Outbox();
         lock (_gate)
@@ -556,7 +501,7 @@ public sealed class DesktopAgent
 
     // Intents ------------------------------------------------------------------------
 
-    private Fdc3AppIntent FindIntent(Fdc3FindIntentRequest request)
+    internal Fdc3AppIntent FindIntent(Fdc3FindIntentRequest request)
     {
         var contextType = request.Context is { } context ? ContextTypeOf(context) : null;
 
@@ -569,7 +514,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private Fdc3AppIntent[] FindIntentsByContext(Fdc3FindIntentsByContextRequest request)
+    internal Fdc3AppIntent[] FindIntentsByContext(Fdc3FindIntentsByContextRequest request)
     {
         var contextType = ContextTypeOf(request.Context);
 
@@ -644,7 +589,7 @@ public sealed class DesktopAgent
         string.Equals(declared, requested, StringComparison.Ordinal) ||
         (requested == "channel" && declared?.StartsWith("channel", StringComparison.Ordinal) == true);
 
-    private Task<Fdc3IntentResolutionInfo> RaiseIntentAsync(AppInstance caller, Fdc3RaiseIntentRequest request)
+    internal Task<Fdc3IntentResolutionInfo> RaiseIntentAsync(AppInstance caller, Fdc3RaiseIntentRequest request)
     {
         var contextType = ContextTypeOf(request.Context);
 
@@ -659,7 +604,7 @@ public sealed class DesktopAgent
         return DeliverIntentAsync(caller, choice.Intent, request.Context.Clone(), choice.Target);
     }
 
-    private Task<Fdc3IntentResolutionInfo> RaiseIntentForContextAsync(AppInstance caller, Fdc3RaiseIntentForContextRequest request)
+    internal Task<Fdc3IntentResolutionInfo> RaiseIntentForContextAsync(AppInstance caller, Fdc3RaiseIntentForContextRequest request)
     {
         var contextType = ContextTypeOf(request.Context);
 
@@ -783,7 +728,7 @@ public sealed class DesktopAgent
         return new Fdc3IntentResolutionInfo(new Fdc3AppIdentifier(target.AppId, instanceId), intent, resultId);
     }
 
-    private async Task<Fdc3IntentResultInfo> GetIntentResultAsync(AppInstance caller, string resultId)
+    internal async Task<Fdc3IntentResultInfo> GetIntentResultAsync(AppInstance caller, string resultId)
     {
         PendingResult? result;
         lock (_gate)
@@ -815,7 +760,7 @@ public sealed class DesktopAgent
         }
     }
 
-    private void SendIntentResult(AppInstance caller, Fdc3SendIntentResultRequest request)
+    internal void SendIntentResult(AppInstance caller, Fdc3SendIntentResultRequest request)
     {
         PendingResult? result;
         Fdc3IntentResultInfo? info = null;
@@ -851,7 +796,7 @@ public sealed class DesktopAgent
 
     // open -----------------------------------------------------------------------------
 
-    private async Task<Fdc3AppIdentifier> OpenAsync(Fdc3OpenRequest request)
+    internal async Task<Fdc3AppIdentifier> OpenAsync(Fdc3OpenRequest request)
     {
         var app = _directory.Find(request.App.AppId) ?? throw new Fdc3Exception(Fdc3Errors.AppNotFound);
         var instanceId = Guid.NewGuid().ToString();
@@ -910,7 +855,7 @@ public sealed class DesktopAgent
 
     // Helpers --------------------------------------------------------------------------
 
-    private AppInstance GetInstance(string instanceId)
+    internal AppInstance GetInstance(string instanceId)
     {
         lock (_gate)
         {
@@ -934,7 +879,7 @@ public sealed class DesktopAgent
 
     private static bool SameApp(string a, string b) => string.Equals(a, b, StringComparison.OrdinalIgnoreCase);
 
-    private sealed class AppInstance(string appId, string instanceId, IFdc3AppSink sink)
+    internal sealed class AppInstance(string appId, string instanceId, IFdc3AppSink sink)
     {
         public string AppId { get; } = appId;
         public string InstanceId { get; } = instanceId;

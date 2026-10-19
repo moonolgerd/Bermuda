@@ -41,7 +41,7 @@
     IPC contract + TypeScript codegen
     =================================
     Bermuda.IpcContract is the single source of truth for the Web<->host contract:
-    [IpCommand] marks a postMessage command (see HostBridge), [IpcHostObject]
+    [IpcCommands] marks an interface of postMessage commands (see HostBridge), [IpcHostObject]
     marks a class projected via CoreWebView2.AddHostObjectToScript (see
     WindowScriptHost). Bermuda.IpcContract.SourceGenerator runs as an analyzer
     against this project — it discovers both attributes and writes the matching

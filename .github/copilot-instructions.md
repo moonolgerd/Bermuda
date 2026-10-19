@@ -145,7 +145,7 @@ MSIX signing: add `MSIX_CERT_BASE64` (base64 PFX) and `MSIX_CERT_PASSWORD` secre
 ## Security
 
 - `AreDefaultContextMenusEnabled = false` and `AreDevToolsEnabled = false` in Release builds
-- Validate and allowlist all IPC command names in `HostBridge`
+- IPC commands are methods on `[IpcCommands]` interfaces in `Bermuda.IpcContract`; `HostBridge` only dispatches those (typed payloads), never raw command strings
 - Never pass unsanitised JS input into C# file paths or shell commands
 - Do not expose sensitive .NET APIs via `AddHostObjectToScript`
 
@@ -294,7 +294,7 @@ window.chrome.webview.addEventListener('message', (e) => {
 - **`AreDefaultContextMenusEnabled = false`** in production builds
 - **`AreDevToolsEnabled = false`** in production builds; enable only when `#DEBUG`
 - Never pass unsanitised user input from JS into C# file paths or shell commands
-- Validate and allowlist all IPC command names in `HostBridge.HandleAsync`
+- Declare new IPC commands as methods on an `[IpcCommands]` interface — `HostBridge.HandleAsync` only dispatches what the contract declares
 - Do not expose sensitive .NET APIs via `AddHostObjectToScript`
 
 ## Testing

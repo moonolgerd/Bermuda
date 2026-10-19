@@ -5,9 +5,9 @@ namespace Bermuda.IpcContract;
 // FDC3 2.2 Desktop Agent wire contract
 // ====================================
 // The frontend's window.fdc3 (src/Bermuda.Web/src/fdc3/) implements the
-// standard @finos/fdc3-standard DesktopAgent interface by calling these
-// fdc3.* commands over the invoke() channel; Bermuda.Fdc3.DesktopAgent
-// handles them on the host. Shapes mirror the FDC3 API types (AppIdentifier,
+// standard @finos/fdc3-standard DesktopAgent interface by calling the
+// fdc3.* commands of IFdc3Commands (bottom of this file) over the invoke()
+// channel; Bermuda.Fdc3 handles them on the host. Shapes mirror the FDC3 API types (AppIdentifier,
 // AppMetadata, AppIntent, ...) closely enough that the frontend shim can pass
 // them through with at most a light wrap (e.g. adding methods to a Channel).
 //
@@ -17,20 +17,15 @@ namespace Bermuda.IpcContract;
 // Host → web push messages (Fdc3ContextEvent etc.) carry a constant `type`
 // discriminator so bridge/index.ts can tell them apart from HostResponses.
 
-[IpcType]
 public sealed record Fdc3AppIdentifier(string AppId, string? InstanceId = null);
 
-[IpcType]
 public sealed record Fdc3DisplayMetadata(string? Name, string? Color, string? Glyph);
 
 /// <summary>A user, app or private channel. <c>Type</c> is one of 'user' | 'app' | 'private'.</summary>
-[IpcType]
 public sealed record Fdc3ChannelInfo(string Id, string Type, Fdc3DisplayMetadata? DisplayMetadata);
 
-[IpcType]
 public sealed record Fdc3IntentMetadata(string Name, string? DisplayName);
 
-[IpcType]
 public sealed record Fdc3AppMetadata(
     string AppId,
     string? InstanceId,
@@ -41,16 +36,13 @@ public sealed record Fdc3AppMetadata(
     string? Description,
     string? ResultType);
 
-[IpcType]
 public sealed record Fdc3AppIntent(Fdc3IntentMetadata Intent, Fdc3AppMetadata[] Apps);
 
-[IpcType]
 public sealed record Fdc3OptionalFeatures(
     bool OriginatingAppMetadata,
     bool UserChannelMembershipAPIs,
     bool DesktopAgentBridging);
 
-[IpcType]
 public sealed record Fdc3ImplementationMetadata(
     string Fdc3Version,
     string Provider,
@@ -63,23 +55,18 @@ public sealed record Fdc3ImplementationMetadata(
 /// turns it into an FDC3 IntentResolution whose <c>getResult()</c> calls
 /// <c>fdc3.getIntentResult</c> with <c>ResultId</c>.
 /// </summary>
-[IpcType]
 public sealed record Fdc3IntentResolutionInfo(Fdc3AppIdentifier Source, string Intent, string ResultId);
 
 /// <summary>An intent handler's result: a context, a channel, or neither (void).</summary>
-[IpcType]
 public sealed record Fdc3IntentResultInfo(JsonElement? Context, Fdc3ChannelInfo? Channel);
 
 // Requests ---------------------------------------------------------------
 
-[IpcType]
 public sealed record Fdc3ChannelIdRequest(string ChannelId);
 
 /// <summary><c>ChannelId</c> null = the caller's current user channel.</summary>
-[IpcType]
 public sealed record Fdc3BroadcastRequest(string? ChannelId, JsonElement Context);
 
-[IpcType]
 public sealed record Fdc3GetCurrentContextRequest(string ChannelId, string? ContextType);
 
 /// <summary>
@@ -88,10 +75,8 @@ public sealed record Fdc3GetCurrentContextRequest(string ChannelId, string? Cont
 /// follow whichever user channel the caller is joined to (fdc3.addContextListener);
 /// non-null = a specific app/private channel (channel.addContextListener).
 /// </summary>
-[IpcType]
 public sealed record Fdc3AddContextListenerRequest(string ListenerId, string? ChannelId, string? ContextType);
 
-[IpcType]
 public sealed record Fdc3AddIntentListenerRequest(string ListenerId, string Intent);
 
 /// <summary>
@@ -99,28 +84,20 @@ public sealed record Fdc3AddIntentListenerRequest(string ListenerId, string Inte
 /// non-null = private channel events ('addContextListener' | 'unsubscribe' | 'disconnect').
 /// <c>EventType</c> null = all event types.
 /// </summary>
-[IpcType]
 public sealed record Fdc3AddEventListenerRequest(string ListenerId, string? EventType, string? ChannelId);
 
-[IpcType]
 public sealed record Fdc3ListenerIdRequest(string ListenerId);
 
-[IpcType]
 public sealed record Fdc3FindIntentRequest(string Intent, JsonElement? Context, string? ResultType);
 
-[IpcType]
 public sealed record Fdc3FindIntentsByContextRequest(JsonElement Context, string? ResultType);
 
-[IpcType]
 public sealed record Fdc3OpenRequest(Fdc3AppIdentifier App, JsonElement? Context);
 
-[IpcType]
 public sealed record Fdc3RaiseIntentRequest(string Intent, JsonElement Context, Fdc3AppIdentifier? App);
 
-[IpcType]
 public sealed record Fdc3RaiseIntentForContextRequest(JsonElement Context, Fdc3AppIdentifier? App);
 
-[IpcType]
 public sealed record Fdc3ResultIdRequest(string ResultId);
 
 /// <summary>
@@ -128,7 +105,6 @@ public sealed record Fdc3ResultIdRequest(string ResultId);
 /// At most one of <c>Context</c>/<c>ChannelId</c> is set (neither = void);
 /// <c>Error</c> is set instead if the handler threw/rejected.
 /// </summary>
-[IpcType]
 public sealed record Fdc3SendIntentResultRequest(string ResultId, JsonElement? Context, string? ChannelId, string? Error);
 
 // Host → web push messages ----------------------------------------------------
@@ -154,71 +130,47 @@ public sealed record Fdc3ApiEvent(string ListenerId, string EventType, object? D
 
 // Commands -------------------------------------------------------------------
 
-[IpCommand("fdc3.getInfo", "undefined", nameof(Fdc3ImplementationMetadata), "FDC3 getInfo().")]
-internal sealed class Fdc3GetInfoCommand;
+/// <summary>
+/// The fdc3.* commands: one per FDC3 DesktopAgent / Channel / PrivateChannel /
+/// IntentResolution call, plus <see cref="SendIntentResult"/>, which reports an
+/// intent handler's outcome back. Implemented per app instance by
+/// <c>Bermuda.Fdc3.Fdc3Connection</c>. Methods throw <c>Fdc3Exception</c>, whose
+/// message is the standard FDC3 error string.
+/// </summary>
+[IpcCommands("fdc3")]
+public interface IFdc3Commands
+{
+    Fdc3ImplementationMetadata GetInfo();
+    Fdc3AppMetadata GetAppMetadata(Fdc3AppIdentifier app);
+    Fdc3AppIdentifier[] FindInstances(Fdc3AppIdentifier app);
+    Task<Fdc3AppIdentifier> OpenAsync(Fdc3OpenRequest request);
 
-[IpCommand("fdc3.getUserChannels", "undefined", "ReadonlyArray<Fdc3ChannelInfo>", "FDC3 getUserChannels().")]
-internal sealed class Fdc3GetUserChannelsCommand;
+    Fdc3ChannelInfo[] GetUserChannels();
+    void JoinUserChannel(Fdc3ChannelIdRequest request);
+    void LeaveCurrentChannel();
+    Fdc3ChannelInfo? GetCurrentChannel();
+    Fdc3ChannelInfo GetOrCreateChannel(Fdc3ChannelIdRequest request);
+    Fdc3ChannelInfo CreatePrivateChannel();
+    void DisconnectPrivateChannel(Fdc3ChannelIdRequest request);
 
-[IpCommand("fdc3.joinUserChannel", nameof(Fdc3ChannelIdRequest), "void", "FDC3 joinUserChannel().")]
-internal sealed class Fdc3JoinUserChannelCommand;
+    /// <summary>FDC3 broadcast() and channel.broadcast().</summary>
+    void Broadcast(Fdc3BroadcastRequest request);
+    JsonElement? GetCurrentContext(Fdc3GetCurrentContextRequest request);
+    void AddContextListener(Fdc3AddContextListenerRequest request);
+    void AddIntentListener(Fdc3AddIntentListenerRequest request);
+    void AddEventListener(Fdc3AddEventListenerRequest request);
 
-[IpCommand("fdc3.leaveCurrentChannel", "undefined", "void", "FDC3 leaveCurrentChannel().")]
-internal sealed class Fdc3LeaveCurrentChannelCommand;
+    /// <summary>Listener.unsubscribe(), for every kind of listener.</summary>
+    void Unsubscribe(Fdc3ListenerIdRequest request);
 
-[IpCommand("fdc3.getCurrentChannel", "undefined", "Fdc3ChannelInfo | null", "FDC3 getCurrentChannel().")]
-internal sealed class Fdc3GetCurrentChannelCommand;
+    Fdc3AppIntent FindIntent(Fdc3FindIntentRequest request);
+    Fdc3AppIntent[] FindIntentsByContext(Fdc3FindIntentsByContextRequest request);
+    Task<Fdc3IntentResolutionInfo> RaiseIntentAsync(Fdc3RaiseIntentRequest request);
+    Task<Fdc3IntentResolutionInfo> RaiseIntentForContextAsync(Fdc3RaiseIntentForContextRequest request);
 
-[IpCommand("fdc3.getOrCreateChannel", nameof(Fdc3ChannelIdRequest), nameof(Fdc3ChannelInfo), "FDC3 getOrCreateChannel().")]
-internal sealed class Fdc3GetOrCreateChannelCommand;
+    /// <summary>IntentResolution.getResult().</summary>
+    Task<Fdc3IntentResultInfo> GetIntentResultAsync(Fdc3ResultIdRequest request);
 
-[IpCommand("fdc3.createPrivateChannel", "undefined", nameof(Fdc3ChannelInfo), "FDC3 createPrivateChannel().")]
-internal sealed class Fdc3CreatePrivateChannelCommand;
-
-[IpCommand("fdc3.disconnectPrivateChannel", nameof(Fdc3ChannelIdRequest), "void", "PrivateChannel.disconnect().")]
-internal sealed class Fdc3DisconnectPrivateChannelCommand;
-
-[IpCommand("fdc3.broadcast", nameof(Fdc3BroadcastRequest), "void", "FDC3 broadcast() / channel.broadcast().")]
-internal sealed class Fdc3BroadcastCommand;
-
-[IpCommand("fdc3.getCurrentContext", nameof(Fdc3GetCurrentContextRequest), "unknown", "channel.getCurrentContext().")]
-internal sealed class Fdc3GetCurrentContextCommand;
-
-[IpCommand("fdc3.addContextListener", nameof(Fdc3AddContextListenerRequest), "void", "FDC3 addContextListener() / channel.addContextListener().")]
-internal sealed class Fdc3AddContextListenerCommand;
-
-[IpCommand("fdc3.addIntentListener", nameof(Fdc3AddIntentListenerRequest), "void", "FDC3 addIntentListener().")]
-internal sealed class Fdc3AddIntentListenerCommand;
-
-[IpCommand("fdc3.addEventListener", nameof(Fdc3AddEventListenerRequest), "void", "FDC3 addEventListener() / privateChannel.addEventListener().")]
-internal sealed class Fdc3AddEventListenerCommand;
-
-[IpCommand("fdc3.unsubscribe", nameof(Fdc3ListenerIdRequest), "void", "Listener.unsubscribe().")]
-internal sealed class Fdc3UnsubscribeCommand;
-
-[IpCommand("fdc3.findIntent", nameof(Fdc3FindIntentRequest), nameof(Fdc3AppIntent), "FDC3 findIntent().")]
-internal sealed class Fdc3FindIntentCommand;
-
-[IpCommand("fdc3.findIntentsByContext", nameof(Fdc3FindIntentsByContextRequest), "ReadonlyArray<Fdc3AppIntent>", "FDC3 findIntentsByContext().")]
-internal sealed class Fdc3FindIntentsByContextCommand;
-
-[IpCommand("fdc3.findInstances", nameof(Fdc3AppIdentifier), "ReadonlyArray<Fdc3AppIdentifier>", "FDC3 findInstances().")]
-internal sealed class Fdc3FindInstancesCommand;
-
-[IpCommand("fdc3.getAppMetadata", nameof(Fdc3AppIdentifier), nameof(Fdc3AppMetadata), "FDC3 getAppMetadata().")]
-internal sealed class Fdc3GetAppMetadataCommand;
-
-[IpCommand("fdc3.open", nameof(Fdc3OpenRequest), nameof(Fdc3AppIdentifier), "FDC3 open().")]
-internal sealed class Fdc3OpenCommand;
-
-[IpCommand("fdc3.raiseIntent", nameof(Fdc3RaiseIntentRequest), nameof(Fdc3IntentResolutionInfo), "FDC3 raiseIntent().")]
-internal sealed class Fdc3RaiseIntentCommand;
-
-[IpCommand("fdc3.raiseIntentForContext", nameof(Fdc3RaiseIntentForContextRequest), nameof(Fdc3IntentResolutionInfo), "FDC3 raiseIntentForContext().")]
-internal sealed class Fdc3RaiseIntentForContextCommand;
-
-[IpCommand("fdc3.getIntentResult", nameof(Fdc3ResultIdRequest), nameof(Fdc3IntentResultInfo), "IntentResolution.getResult().")]
-internal sealed class Fdc3GetIntentResultCommand;
-
-[IpCommand("fdc3.sendIntentResult", nameof(Fdc3SendIntentResultRequest), "void", "Reports an intent handler's result back to the raiser.")]
-internal sealed class Fdc3SendIntentResultCommand;
+    /// <summary>Reports an intent handler's result back to the raiser.</summary>
+    void SendIntentResult(Fdc3SendIntentResultRequest request);
+}

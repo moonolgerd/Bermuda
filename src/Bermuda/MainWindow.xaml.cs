@@ -14,14 +14,13 @@ namespace Bermuda;
 
 public partial class MainWindow : Window, IWindowController, IFdc3AppSink
 {
-    // System.Text.Json's default is to preserve C# property names as-is
-    // (PascalCase); the web side expects camelCase (matches the generated
-    // TS shapes in src/ipc/__generated__/ipc.d.ts), so every host->web message
-    // goes through this — and web->host requests are read with it too.
-    private static readonly JsonSerializerOptions HostToWebJson = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-    };
+    // The web side speaks camelCase (the generated TS shapes in
+    // src/ipc/__generated__/ipc.d.ts); System.Text.Json's default is to keep
+    // C# PascalCase and to match names case-sensitively. Its Web preset is
+    // camelCase out and case-insensitive in, so every message in both
+    // directions goes through it — without it nothing in { id, command }
+    // binds to IpcRequest and every command is rejected as unknown.
+    private static readonly JsonSerializerOptions HostJson = JsonSerializerOptions.Web;
 
     // Every window shares one WebView2 environment (and so one browser
     // process) — a second CreateAsync on the same user data folder would have
@@ -31,15 +30,15 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     private readonly HostBridge _bridge;
     private readonly DesktopAgent _fdc3;
     private readonly string _fdc3AppId;
+    private readonly string? _fdc3LaunchInstanceId;
     private readonly string _webUrl;
     private readonly int _cdpPort;
 
-    // This window's FDC3 app instance. Starts as the launcher-assigned id (if
-    // FDC3 opened this window) and is connected on the first navigation; every
-    // later navigation (reload, link) reconnects as a fresh instance, since
-    // the old page's listeners died with it.
-    private string? _fdc3InstanceId;
-    private bool _fdc3Connected;
+    // This window's FDC3 app instance. Connected on the first navigation (as
+    // the launcher-assigned instance, if FDC3 opened this window); every later
+    // navigation (reload, link) reconnects as a fresh instance, since the old
+    // page's listeners died with it.
+    private Fdc3Connection? _fdc3Connection;
 
     /// <param name="fdc3AppId">The App Directory appId this window's page runs as.</param>
     /// <param name="fdc3InstanceId">Set when FDC3 launched this window; the agent is waiting on this id.</param>
@@ -49,14 +48,15 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         InitializeComponent();
         _fdc3 = fdc3;
         _fdc3AppId = fdc3AppId;
-        _fdc3InstanceId = fdc3InstanceId;
-        _bridge = new HostBridge(fdc3, () => _fdc3Connected ? _fdc3InstanceId! : throw new InvalidOperationException("FDC3 not connected yet."));
+        _fdc3LaunchInstanceId = fdc3InstanceId;
+        _bridge = new HostBridge(() => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."));
         _webUrl = url ?? configuration["WEB_URL"] ?? "http://localhost:5555";
         _cdpPort = configuration.GetValue("CDP_PORT", 0);
         Loaded += OnLoaded;
         Closed += (_, _) =>
         {
-            DisconnectFdc3();
+            _fdc3Connection?.Dispose();
+            _fdc3Connection = null;
             // With several windows open the app (and browser process) outlives
             // this one, so release its page explicitly — otherwise it lingers
             // as an orphaned, never-rendering CDP target.
@@ -99,22 +99,9 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
 
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (_fdc3Connected)
-        {
-            DisconnectFdc3();
-            _fdc3InstanceId = null;
-        }
-
-        _fdc3InstanceId = _fdc3.Connect(_fdc3AppId, this, _fdc3InstanceId).InstanceId;
-        _fdc3Connected = true;
-    }
-
-    private void DisconnectFdc3()
-    {
-        if (!_fdc3Connected) return;
-
-        _fdc3.Disconnect(_fdc3InstanceId!);
-        _fdc3Connected = false;
+        var isFirstNavigation = _fdc3Connection is null;
+        _fdc3Connection?.Dispose();
+        _fdc3Connection = _fdc3.Connect(_fdc3AppId, this, isFirstNavigation ? _fdc3LaunchInstanceId : null);
     }
 
     // IFdc3AppSink: the agent's context/intent/event deliveries for this window's page.
@@ -126,10 +113,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         IpcRequest? req;
         try
         {
-            // Same camelCase policy on the way in — without it nothing binds
-            // ({ id, command } vs IpcRequest's Id/Command) and every command
-            // arrives as "" and is rejected as unknown.
-            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson, HostToWebJson);
+            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson, HostJson);
         }
         catch
         {
@@ -139,14 +123,14 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         if (req is null) return;
 
         var result = await _bridge.HandleAsync(req.Command, req.Payload);
-        var response = JsonSerializer.Serialize(new HostResponse(req.Id, result), HostToWebJson);
+        var response = JsonSerializer.Serialize(new HostResponse(req.Id, result), HostJson);
 
         Dispatcher.Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(response));
     }
 
     public void PushEvent(object eventPayload)
     {
-        var json = JsonSerializer.Serialize(eventPayload, HostToWebJson);
+        var json = JsonSerializer.Serialize(eventPayload, HostJson);
         Dispatcher.Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(json));
     }
 
