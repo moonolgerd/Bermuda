@@ -36,6 +36,7 @@ A Windows 10/11 desktop application built with a WPF/WebView2 native host, a .NE
 
 - **Dark theme** — dark Win32 title bar via DWMWA_USE_IMMERSIVE_DARK_MODE
 - **GraphQL + Relay** — type-safe queries with auto-generated TypeScript types
+- **FDC3 2.2 Desktop Agent** — standard `window.fdc3` in every host window: user/app/private channels, intents, `open`, an App Directory (see [FDC3](#fdc3))
 
 ## Prerequisites
 
@@ -57,17 +58,22 @@ The Aspire dashboard opens at `https://localhost:18888`. The WPF window launches
 ```
 src/
 ├── Bermuda/               # WPF host (WebView2, IPC bridge, dark title bar)
+│   └── fdc3-appd.json     # FDC3 App Directory
 ├── Bermuda.Api/           # ASP.NET Core + Hot Chocolate GraphQL API
 │   └── GraphQL/
 │       ├── Incident.cs    # Incident record + enums (Status, Priority)
 │       ├── IncidentRepository.cs
 │       └── IncidentQuery.cs
 ├── Bermuda.AppHost/       # .NET Aspire orchestration
+├── Bermuda.Fdc3/          # FDC3 Desktop Agent (channels, context, intents)
+├── Bermuda.Fdc3.Tests/    # xUnit tests for the agent (dotnet test)
 ├── Bermuda.ServiceDefaults/
 └── Bermuda.Web/           # Vite + React + TypeScript frontend
     ├── src/
     │   ├── bridge/        # WebView2 IPC wrapper (bermudaHost.invoke)
+    │   ├── fdc3/          # window.fdc3 over the IPC bridge
     │   ├── components/
+    │   │   ├── ChannelPicker.tsx        # FDC3 user channel selector
     │   │   ├── IncidentsDashboard.tsx   # Relay query root, selection state
     │   │   ├── IncidentsTable.tsx       # Sortable table
     │   │   └── IncidentMap.tsx          # react-leaflet map
@@ -82,9 +88,25 @@ Tests connect to the running WebView2 process via Chrome DevTools Protocol — n
 
 ```powershell
 cd src/Bermuda.Web
-pnpm e2e          # run all 22 tests
+pnpm e2e          # run all 24 tests
 pnpm e2e:ui       # open Playwright UI mode
 ```
+
+## FDC3
+
+The host is an [FDC3 2.2](https://fdc3.finos.org) Desktop Agent. Every host window's page is one connected app instance and gets a standard `window.fdc3` (an `fdc3Ready` event fires once it's installed), so any FDC3 code works unchanged:
+
+```ts
+await window.fdc3.joinUserChannel('fdc3.channel.1')
+await window.fdc3.broadcast({ type: 'bermuda.incident', id: { incidentId: '7' } })
+const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
+```
+
+- **Where it lives** — the agent is `src/Bermuda.Fdc3/DesktopAgent.cs` (one per process, shared by all windows). `src/Bermuda.Web/src/fdc3/` implements the `@finos/fdc3-standard` `DesktopAgent` interface by calling `fdc3.*` `invoke()` commands (declared in `Bermuda.IpcContract/Fdc3Contract.cs`, so their TS types are generated like everything else) and dispatching the host's `fdc3.context` / `fdc3.intent` / `fdc3.event` pushes to registered handlers.
+- **Supported** — the 8 recommended user channels, app channels, private channels (with their events), `broadcast`/`addContextListener`/`getCurrentContext`, `findIntent`/`findIntentsByContext`/`raiseIntent`/`raiseIntentForContext`/`addIntentListener` with results (context or channel), `open`, `findInstances`, `getAppMetadata`, `getInfo`, and the `userChannelChanged` event. Not yet: Desktop Agent Bridging, or the Web Connection Protocol for browser apps outside the host.
+- **App Directory** — `src/Bermuda/fdc3-appd.json` uses the AppD v2 `applications` shape; relative `details.url`s resolve against `WEB_URL`. `fdc3.open` (or raising an intent at an app that isn't running) opens the app in a new host window.
+- **No resolver UI yet** — when an intent has several possible targets the agent picks the single running instance with a listener, else the single App Directory app to launch; anything more ambiguous rejects with `ResolverUnavailable`, so pass a target `app` (`{ appId, instanceId }`) to disambiguate.
+- **In the app** — the channel picker in the header joins/leaves a user channel. Selecting an incident broadcasts a `bermuda.incident` context; incidents broadcast by other apps on the same channel, or raised via the `ViewIncident` intent, get selected.
 
 ## Other useful commands
 

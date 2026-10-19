@@ -173,6 +173,11 @@ internal static class TypeScriptDefinition
     /// <summary>Maps a C# type to its TypeScript equivalent. Used for both record properties and host-object members.</summary>
     internal static string MapType(ITypeSymbol type)
     {
+        // `string?`, `Foo?` etc. (nullable reference types) — the struct case
+        // (Nullable<T>) is handled separately below.
+        if (type.IsReferenceType && type.NullableAnnotation == NullableAnnotation.Annotated)
+            return MapType(type.WithNullableAnnotation(NullableAnnotation.NotAnnotated)) + " | null";
+
         if (type is IArrayTypeSymbol array)
             return "ReadonlyArray<" + MapType(array.ElementType!) + ">";
 
@@ -211,6 +216,10 @@ internal static class TypeScriptDefinition
         var fq = type.ToDisplayString(SymbolDisplayFormat.FullyQualifiedFormat);
         if (fq is "global::System.DateTimeOffset" or "global::System.Guid")
             return "string";
+
+        // Raw JSON (e.g. FDC3 contexts, which are open-ended objects).
+        if (fq is "global::System.Text.Json.JsonElement")
+            return "unknown";
 
         // Any other named type is assumed to be another generated interface.
         return type.Name;

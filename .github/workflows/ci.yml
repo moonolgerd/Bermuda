@@ -36,6 +36,9 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Bermuda.slnx --configuration Release
 
+      - name: .NET unit tests
+        run: dotnet test Bermuda.slnx --configuration Release --no-build
+
       - name: Lint
         working-directory: src/Bermuda.Web
         run: pnpm lint

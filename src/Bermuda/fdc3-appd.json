@@ -1,0 +1,29 @@
+{
+  "applications": [
+    {
+      "appId": "bermuda-incidents",
+      "name": "bermuda-incidents",
+      "title": "Bermuda Incidents",
+      "description": "Incident dashboard for the Bermuda Triangle: sortable table plus map.",
+      "type": "web",
+      "details": { "url": "/" },
+      "interop": {
+        "intents": {
+          "listensFor": {
+            "ViewIncident": {
+              "displayName": "View Incident",
+              "contexts": ["bermuda.incident"]
+            }
+          },
+          "raises": {
+            "ViewIncident": ["bermuda.incident"]
+          }
+        },
+        "userChannels": {
+          "broadcasts": ["bermuda.incident"],
+          "listensFor": ["bermuda.incident"]
+        }
+      }
+    }
+  ]
+}

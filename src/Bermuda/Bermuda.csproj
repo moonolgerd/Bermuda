@@ -85,6 +85,14 @@
     <Content Include="appsettings.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- FDC3 App Directory (AppD v2 "applications" shape) — see Bermuda.Fdc3.AppDirectory -->
+    <Content Include="fdc3-appd.json">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />
   </ItemGroup>
 
   <!--

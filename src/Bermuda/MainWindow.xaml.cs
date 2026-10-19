@@ -5,34 +5,73 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shell;
+using Bermuda.Fdc3;
 using Bermuda.IpcContract;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Web.WebView2.Core;
 
 namespace Bermuda;
 
-public partial class MainWindow : Window, IWindowController
+public partial class MainWindow : Window, IWindowController, IFdc3AppSink
 {
     // System.Text.Json's default is to preserve C# property names as-is
     // (PascalCase); the web side expects camelCase (matches the generated
     // TS shapes in src/ipc/__generated__/ipc.d.ts), so every host->web message
-    // goes through this.
+    // goes through this — and web->host requests are read with it too.
     private static readonly JsonSerializerOptions HostToWebJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    // Every window shares one WebView2 environment (and so one browser
+    // process) — a second CreateAsync on the same user data folder would have
+    // to repeat the exact same options anyway, e.g. the CDP port.
+    private static Task<CoreWebView2Environment>? _environment;
+
     private readonly HostBridge _bridge;
+    private readonly DesktopAgent _fdc3;
+    private readonly string _fdc3AppId;
     private readonly string _webUrl;
     private readonly int _cdpPort;
 
-    public MainWindow(IConfiguration configuration)
+    // This window's FDC3 app instance. Starts as the launcher-assigned id (if
+    // FDC3 opened this window) and is connected on the first navigation; every
+    // later navigation (reload, link) reconnects as a fresh instance, since
+    // the old page's listeners died with it.
+    private string? _fdc3InstanceId;
+    private bool _fdc3Connected;
+
+    /// <param name="fdc3AppId">The App Directory appId this window's page runs as.</param>
+    /// <param name="fdc3InstanceId">Set when FDC3 launched this window; the agent is waiting on this id.</param>
+    /// <param name="url">Overrides WEB_URL (FDC3-launched windows load their App Directory URL).</param>
+    public MainWindow(IConfiguration configuration, DesktopAgent fdc3, string fdc3AppId, string? fdc3InstanceId = null, string? url = null)
     {
         InitializeComponent();
-        _bridge = new HostBridge();
-        _webUrl = configuration["WEB_URL"] ?? "http://localhost:5555";
+        _fdc3 = fdc3;
+        _fdc3AppId = fdc3AppId;
+        _fdc3InstanceId = fdc3InstanceId;
+        _bridge = new HostBridge(fdc3, () => _fdc3Connected ? _fdc3InstanceId! : throw new InvalidOperationException("FDC3 not connected yet."));
+        _webUrl = url ?? configuration["WEB_URL"] ?? "http://localhost:5555";
         _cdpPort = configuration.GetValue("CDP_PORT", 0);
         Loaded += OnLoaded;
+        Closed += (_, _) =>
+        {
+            DisconnectFdc3();
+            // With several windows open the app (and browser process) outlives
+            // this one, so release its page explicitly — otherwise it lingers
+            // as an orphaned, never-rendering CDP target.
+            _webView.Dispose();
+        };
+    }
+
+    private Task<CoreWebView2Environment> GetEnvironmentAsync()
+    {
+        if (_environment is not null) return _environment;
+
+        var options = _cdpPort > 0
+            ? new CoreWebView2EnvironmentOptions { AdditionalBrowserArguments = $"--remote-debugging-port={_cdpPort}" }
+            : null;
+        return _environment = CoreWebView2Environment.CreateAsync(options: options);
     }
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
@@ -45,19 +84,7 @@ public partial class MainWindow : Window, IWindowController
         int dark = 1;
         DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref dark, sizeof(int));
 
-        if (_cdpPort > 0)
-        {
-            var options = new CoreWebView2EnvironmentOptions
-            {
-                AdditionalBrowserArguments = $"--remote-debugging-port={_cdpPort}"
-            };
-            var env = await CoreWebView2Environment.CreateAsync(options: options);
-            await _webView.EnsureCoreWebView2Async(env);
-        }
-        else
-        {
-            await _webView.EnsureCoreWebView2Async();
-        }
+        await _webView.EnsureCoreWebView2Async(await GetEnvironmentAsync());
 
 #if !DEBUG
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
@@ -66,8 +93,32 @@ public partial class MainWindow : Window, IWindowController
 
         _webView.CoreWebView2.AddHostObjectToScript("windowController", new WindowScriptHost(this));
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+        _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
         _webView.CoreWebView2.Navigate(_webUrl);
     }
+
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (_fdc3Connected)
+        {
+            DisconnectFdc3();
+            _fdc3InstanceId = null;
+        }
+
+        _fdc3InstanceId = _fdc3.Connect(_fdc3AppId, this, _fdc3InstanceId).InstanceId;
+        _fdc3Connected = true;
+    }
+
+    private void DisconnectFdc3()
+    {
+        if (!_fdc3Connected) return;
+
+        _fdc3.Disconnect(_fdc3InstanceId!);
+        _fdc3Connected = false;
+    }
+
+    // IFdc3AppSink: the agent's context/intent/event deliveries for this window's page.
+    void IFdc3AppSink.Post(object message) => PushEvent(message);
 
     private async void OnWebMessageReceived(object? sender,
         Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e)
@@ -75,7 +126,10 @@ public partial class MainWindow : Window, IWindowController
         IpcRequest? req;
         try
         {
-            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson);
+            // Same camelCase policy on the way in — without it nothing binds
+            // ({ id, command } vs IpcRequest's Id/Command) and every command
+            // arrives as "" and is rejected as unknown.
+            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson, HostToWebJson);
         }
         catch
         {
@@ -129,7 +183,9 @@ public partial class MainWindow : Window, IWindowController
 
     public void Restore() => ApplyWindowAction(() => base.WindowState = System.Windows.WindowState.Normal);
 
-    public void CloseWindow() => ApplyWindowAction(Close);
+    // Deferred: this is usually called from script (windowController.Close()),
+    // i.e. from inside a WebView2 callback, and closing disposes that WebView2.
+    public void CloseWindow() => Dispatcher.BeginInvoke(Close);
 
     public void Resize(int width, int height)
     {

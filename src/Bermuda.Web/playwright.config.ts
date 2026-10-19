@@ -3,6 +3,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
+  // Every spec drives the same live WebView2 window, so files can't run side by side.
+  workers: 1,
   retries: 0,
   use: {
     trace: 'on-first-retry',

@@ -4,11 +4,28 @@ export type { TaskbarProgressState }
 
 const pending = new Map<string, (result: unknown) => void>()
 
+/** A host-initiated message (no request id) — e.g. an FDC3 context delivery. Discriminated by `type`. */
+export interface HostEvent {
+  type: string
+}
+
+const eventHandlers = new Set<(event: HostEvent) => void>()
+
 window.chrome?.webview?.addEventListener('message', (e: Event) => {
-  const msg = (e as MessageEvent).data as HostResponse
-  pending.get(msg.id)?.(msg.result)
-  pending.delete(msg.id)
+  const msg = (e as MessageEvent).data as HostResponse | HostEvent
+  if ('id' in msg) {
+    pending.get(msg.id)?.(msg.result)
+    pending.delete(msg.id)
+    return
+  }
+  for (const handler of eventHandlers) handler(msg)
 })
+
+/** Subscribe to host push events; returns an unsubscribe function. */
+function onEvent(handler: (event: HostEvent) => void): () => void {
+  eventHandlers.add(handler)
+  return () => eventHandlers.delete(handler)
+}
 
 function invoke<T>(command: string, payload?: unknown): Promise<T> {
   const id = crypto.randomUUID()
@@ -49,5 +66,6 @@ export type WindowApi = typeof windowApi
 
 export const bermudaHost = {
   invoke,
+  onEvent,
   window: windowApi,
 }
