@@ -4,6 +4,7 @@ import { defineConfig } from 'vite'
 // injects into every page (see src/fdc3/preload.ts). Output is committed, and
 // CI checks it's up to date with the sources.
 export default defineConfig({
+  publicDir: false, // don't copy public/ (the probe app etc.) next to the script
   build: {
     lib: {
       entry: 'src/fdc3/preload.ts',
