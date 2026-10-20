@@ -1,0 +1,31 @@
+<!doctype html>
+<!--
+  Sample FDC3 app: plain HTML, no Bermuda bundle. It exists to show (and let
+  e2e/fdc3.spec.ts verify) that the host injects window.fdc3 into any page it
+  hosts. Registered in src/Bermuda/fdc3-appd.json as "fdc3-probe".
+-->
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <title>FDC3 probe</title>
+  </head>
+  <body>
+    <h1>FDC3 probe</h1>
+    <p id="status">waiting for window.fdc3…</p>
+    <ul id="received"></ul>
+    <script>
+      const ready = window.fdc3
+        ? Promise.resolve()
+        : new Promise(resolve => window.addEventListener('fdc3Ready', resolve, { once: true }))
+
+      ready.then(async () => {
+        document.getElementById('status').textContent = 'fdc3 ready'
+        await window.fdc3.addContextListener('bermuda.incident', context => {
+          const item = document.createElement('li')
+          item.textContent = context.id.incidentId
+          document.getElementById('received').appendChild(item)
+        })
+      })
+    </script>
+  </body>
+</html>

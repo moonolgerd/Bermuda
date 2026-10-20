@@ -135,7 +135,7 @@ await provide(page)
 | Job | Runner | Trigger | Does |
 |---|---|---|---|
 | `build` | `windows-latest` | every push/PR | dotnet build, dotnet test, lint, Vitest, pnpm build |
-| `e2e` | `self-hosted` | after `build` | full stack via `aspire run`, 24 Playwright tests |
+| `e2e` | `self-hosted` | after `build` | full stack via `aspire run`, 25 Playwright tests |
 | `publish` | `windows-latest` | `v*.*.*.*` tags | CreateMsix, GitHub Release with `.msix` asset |
 
 Self-hosted runner needed for `e2e` because WebView2 requires an interactive desktop session.

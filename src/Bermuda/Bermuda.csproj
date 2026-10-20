@@ -89,6 +89,10 @@
     <Content Include="fdc3-appd.json">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </Content>
+    <!-- window.fdc3 bridge injected into every page; built from src/Bermuda.Web/src/fdc3/preload.ts (pnpm build:preload) -->
+    <Content Include="Preload\fdc3-preload.js">
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
   </ItemGroup>
 
   <ItemGroup>

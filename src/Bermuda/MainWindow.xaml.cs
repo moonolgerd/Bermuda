@@ -40,6 +40,11 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     // page's listeners died with it.
     private Fdc3Connection? _fdc3Connection;
 
+    // Set when the window closes. Requests still in flight (e.g. a page
+    // awaiting fdc3.getIntentResult) finish after that, and by then the WebView2
+    // is disposed, so every continuation checks this before touching it.
+    private bool _closed;
+
     /// <param name="fdc3AppId">The App Directory appId this window's page runs as.</param>
     /// <param name="fdc3InstanceId">Set when FDC3 launched this window; the agent is waiting on this id.</param>
     /// <param name="url">Overrides WEB_URL (FDC3-launched windows load their App Directory URL).</param>
@@ -55,6 +60,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         Loaded += OnLoaded;
         Closed += (_, _) =>
         {
+            _closed = true;
             _fdc3Connection?.Dispose();
             _fdc3Connection = null;
             // With several windows open the app (and browser process) outlives
@@ -85,11 +91,17 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref dark, sizeof(int));
 
         await _webView.EnsureCoreWebView2Async(await GetEnvironmentAsync());
+        if (_closed) return;
 
 #if !DEBUG
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
 #endif
+
+        // window.fdc3 for every page, whatever app it is: runs before the page's own scripts.
+        if (File.Exists(Fdc3PreloadPath))
+            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(await File.ReadAllTextAsync(Fdc3PreloadPath));
+        if (_closed) return;
 
         _webView.CoreWebView2.AddHostObjectToScript("windowController", new WindowScriptHost(this));
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
@@ -97,8 +109,15 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         _webView.CoreWebView2.Navigate(_webUrl);
     }
 
+    private static string Fdc3PreloadPath { get; } = Path.Combine(AppContext.BaseDirectory, "Preload", "fdc3-preload.js");
+
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
+        // Redirects fire this again for the same navigation. Reconnecting would
+        // drop the launcher-assigned instance (and its pending open/intent
+        // delivery) before the page that finally loads gets to register.
+        if (e.IsRedirected && _fdc3Connection is not null) return;
+
         var isFirstNavigation = _fdc3Connection is null;
         _fdc3Connection?.Dispose();
         _fdc3Connection = _fdc3.Connect(_fdc3AppId, this, isFirstNavigation ? _fdc3LaunchInstanceId : null);
@@ -123,15 +142,20 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         if (req is null) return;
 
         var result = await _bridge.HandleAsync(req.Command, req.Payload);
-        var response = JsonSerializer.Serialize(new HostResponse(req.Id, result), HostJson);
+        if (_closed) return;
 
-        Dispatcher.Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(response));
+        PostToPage(JsonSerializer.Serialize(new HostResponse(req.Id, result), HostJson));
     }
 
-    public void PushEvent(object eventPayload)
+    public void PushEvent(object eventPayload) => PostToPage(JsonSerializer.Serialize(eventPayload, HostJson));
+
+    /// <summary>Posts to the page unless the window has closed (which disposes the WebView2).</summary>
+    private void PostToPage(string json)
     {
-        var json = JsonSerializer.Serialize(eventPayload, HostJson);
-        Dispatcher.Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(json));
+        Dispatcher.Invoke(() =>
+        {
+            if (!_closed) _webView.CoreWebView2.PostWebMessageAsJson(json);
+        });
     }
 
     // IWindowController -------------------------------------------------------

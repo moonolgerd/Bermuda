@@ -1,6 +1,19 @@
 {
   "applications": [
     {
+      "appId": "fdc3-probe",
+      "name": "fdc3-probe",
+      "title": "FDC3 Probe",
+      "description": "Sample FDC3 app (plain HTML, no Bermuda bundle) that lists the incidents sent to it.",
+      "type": "web",
+      "details": { "url": "/fdc3-probe.html" },
+      "interop": {
+        "userChannels": {
+          "listensFor": ["bermuda.incident"]
+        }
+      }
+    },
+    {
       "appId": "bermuda-incidents",
       "name": "bermuda-incidents",
       "title": "Bermuda Incidents",

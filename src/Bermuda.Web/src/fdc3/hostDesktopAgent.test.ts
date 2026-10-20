@@ -126,4 +126,67 @@ describe('HostDesktopAgent', () => {
     const channel = await agent.getCurrentChannel()
     expect(channel?.displayMetadata).toEqual({ name: 'Channel 1', color: 'red' })
   })
+
+  it.each([42, 'a string', { noType: true }])('rejects the raiser when a handler returns %j', async (value) => {
+    const { agent, calls, emit } = fakeHost()
+    await agent.addIntentListener('ViewIncident', () => value as never)
+    const { listenerId } = calls[0].payload as { listenerId: string }
+
+    emit({ type: 'fdc3.intent', listenerId, intent: 'ViewIncident', context: incident, source: null, resultId: 'r9' })
+    await vi.waitFor(() => expect(calls).toHaveLength(2))
+
+    expect(calls[1].payload).toMatchObject({ resultId: 'r9', context: null, channelId: null, error: expect.any(String) })
+  })
+
+  it('treats a void handler result as success', async () => {
+    const { agent, calls, emit } = fakeHost()
+    await agent.addIntentListener('ViewIncident', () => {})
+    const { listenerId } = calls[0].payload as { listenerId: string }
+
+    emit({ type: 'fdc3.intent', listenerId, intent: 'ViewIncident', context: incident, source: null, resultId: 'r8' })
+    await vi.waitFor(() => expect(calls).toHaveLength(2))
+
+    expect(calls[1].payload).toEqual({ resultId: 'r8', context: null, channelId: null, error: null })
+  })
+
+  it('shares one retrieval between repeated and concurrent getResult() calls', async () => {
+    const { agent, calls } = fakeHost(command => {
+      if (command === 'fdc3.raiseIntent') return { source: { appId: 'map', instanceId: 'i9' }, intent: 'ViewMap', resultId: 'r3' }
+      if (command === 'fdc3.getIntentResult') return { context: { type: 'fdc3.location' }, channel: null }
+      return null
+    })
+    const resolution = await agent.raiseIntent('ViewMap', incident)
+
+    const [a, b] = await Promise.all([resolution.getResult(), resolution.getResult()])
+    const c = await resolution.getResult()
+
+    expect(a).toEqual({ type: 'fdc3.location' })
+    expect(b).toBe(a)
+    expect(c).toBe(a)
+    expect(calls.filter(call => call.command === 'fdc3.getIntentResult')).toHaveLength(1)
+  })
+
+  it('returns the same Channel object from every getResult() call', async () => {
+    const { agent } = fakeHost(command => {
+      if (command === 'fdc3.raiseIntent') return { source: { appId: 'map', instanceId: 'i9' }, intent: 'StartChat', resultId: 'r4' }
+      if (command === 'fdc3.getIntentResult') return { context: null, channel: { id: 'private.1', type: 'private', displayMetadata: null } }
+      return null
+    })
+    const resolution = await agent.raiseIntent('StartChat', incident)
+
+    expect(await resolution.getResult()).toBe(await resolution.getResult())
+  })
+
+  it('shares a rejection too', async () => {
+    const { agent, calls } = fakeHost(command => {
+      if (command === 'fdc3.raiseIntent') return { source: { appId: 'map', instanceId: 'i9' }, intent: 'ViewMap', resultId: 'r5' }
+      if (command === 'fdc3.getIntentResult') return { error: 'IntentHandlerRejected' }
+      return null
+    })
+    const resolution = await agent.raiseIntent('ViewMap', incident)
+
+    await expect(resolution.getResult()).rejects.toThrow('IntentHandlerRejected')
+    await expect(resolution.getResult()).rejects.toThrow('IntentHandlerRejected')
+    expect(calls.filter(call => call.command === 'fdc3.getIntentResult')).toHaveLength(1)
+  })
 })

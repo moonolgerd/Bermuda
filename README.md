@@ -88,13 +88,13 @@ Tests connect to the running WebView2 process via Chrome DevTools Protocol — n
 
 ```powershell
 cd src/Bermuda.Web
-pnpm e2e          # run all 24 tests
+pnpm e2e          # run all 25 tests
 pnpm e2e:ui       # open Playwright UI mode
 ```
 
 ## FDC3
 
-The host is an [FDC3 2.2](https://fdc3.finos.org) Desktop Agent. Every host window's page is one connected app instance and gets a standard `window.fdc3` (an `fdc3Ready` event fires once it's installed), so any FDC3 code works unchanged:
+The host is an [FDC3 2.2](https://fdc3.finos.org) Desktop Agent. Every host window's page is one connected app instance and gets a standard `window.fdc3` (an `fdc3Ready` event fires once it's installed), so any FDC3 code works unchanged. The host injects it into **every** page it shows, before the page's own scripts run (`AddScriptToExecuteOnDocumentCreatedAsync` with `src/Bermuda/Preload/fdc3-preload.js`), so App Directory apps need no Bermuda code — `public/fdc3-probe.html` is a plain-HTML sample:
 
 ```ts
 await window.fdc3.joinUserChannel('fdc3.channel.1')
@@ -104,7 +104,8 @@ const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
 
 - **Where it lives** — the agent is `src/Bermuda.Fdc3/DesktopAgent.cs` (one per process, shared by all windows). `src/Bermuda.Web/src/fdc3/` implements the `@finos/fdc3-standard` `DesktopAgent` interface by calling `fdc3.*` `invoke()` commands (the `IFdc3Commands` interface in `Bermuda.IpcContract/Fdc3Contract.cs`, implemented per app instance by `Fdc3Connection`, so their TS types are generated like everything else) and dispatching the host's `fdc3.context` / `fdc3.intent` / `fdc3.event` pushes to registered handlers.
 - **Supported** — the 8 recommended user channels, app channels, private channels (with their events), `broadcast`/`addContextListener`/`getCurrentContext`, `findIntent`/`findIntentsByContext`/`raiseIntent`/`raiseIntentForContext`/`addIntentListener` with results (context or channel), `open`, `findInstances`, `getAppMetadata`, `getInfo`, and the `userChannelChanged` event. Not yet: Desktop Agent Bridging, or the Web Connection Protocol for browser apps outside the host.
-- **App Directory** — `src/Bermuda/fdc3-appd.json` uses the AppD v2 `applications` shape; relative `details.url`s resolve against `WEB_URL`. `fdc3.open` (or raising an intent at an app that isn't running) opens the app in a new host window.
+- **Preload bundle** — `fdc3-preload.js` is built from `src/Bermuda.Web/src/fdc3/preload.ts` by `pnpm build:preload` (part of `pnpm build`) and committed, like `ipc.d.ts`, so the host builds without Node; CI fails if it's out of date. Re-run `pnpm build:preload` after touching anything under `src/fdc3/`.
+- **App Directory** — `src/Bermuda/fdc3-appd.json` uses the AppD v2 `applications` shape; relative `details.url`s resolve against `WEB_URL`. `fdc3.open` (or raising an intent at an app that isn't running) opens the app in a new host window and resolves once the app has connected (and, if you passed a context, registered a listener for it), or rejects with `AppTimeout`. Intent results the raiser never collects are dropped after 10 minutes.
 - **No resolver UI yet** — when an intent has several possible targets the agent picks the single running instance with a listener, else the single App Directory app to launch; anything more ambiguous rejects with `ResolverUnavailable`, so pass a target `app` (`{ appId, instanceId }`) to disambiguate.
 - **In the app** — the channel picker in the header joins/leaves a user channel. Selecting an incident broadcasts a `bermuda.incident` context; incidents broadcast by other apps on the same channel, or raised via the `ViewIncident` intent, get selected.
 

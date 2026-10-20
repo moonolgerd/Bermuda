@@ -64,4 +64,28 @@ test.describe('FDC3', () => {
       await expect(first).toHaveAttribute('aria-pressed', 'false')
     }
   })
+
+  test('any hosted page gets window.fdc3, not just ones built from the app bundle', async ({ page }) => {
+    // fdc3-probe.html is plain HTML with no Bermuda scripts. open() with a
+    // context only resolves once the opened page registers a matching
+    // listener — impossible unless the host injected window.fdc3 into it.
+    const [probe, opened] = await Promise.all([
+      page.context().waitForEvent('page'),
+      page.evaluate(() =>
+        (window.fdc3 as DesktopAgent).open(
+          { appId: 'fdc3-probe' },
+          { type: 'bermuda.incident', id: { incidentId: 'probe-7' } } as Context,
+        )),
+    ])
+
+    try {
+      expect(opened.appId).toBe('fdc3-probe')
+      await expect(probe.locator('#status')).toHaveText('fdc3 ready')
+      await expect(probe.locator('#received li')).toHaveText(['probe-7'])
+    } finally {
+      const closed = probe.waitForEvent('close')
+      await probe.evaluate(() => window.chrome.webview.hostObjects.windowController.Close()).catch(() => {})
+      await closed
+    }
+  })
 })

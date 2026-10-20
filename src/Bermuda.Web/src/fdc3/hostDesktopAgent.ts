@@ -201,12 +201,15 @@ export class HostDesktopAgent implements DesktopAgent {
       return
     }
 
-    await this.call('sendIntentResult', {
-      resultId: e.resultId,
-      context: isContext(result) && !isChannel(result) ? result : null,
-      channelId: isChannel(result) ? result.id : null,
-      error: null,
-    })
+    // An IntentResult is void, a Context or a Channel; anything else (e.g. 42)
+    // must reject the raiser's getResult(), not pass as void.
+    const outcome =
+      result === undefined || result === null ? { context: null, channelId: null, error: null }
+      : isChannel(result) ? { context: null, channelId: result.id, error: null }
+      : isContext(result) ? { context: result, channelId: null, error: null }
+      : { context: null, channelId: null, error: 'Intent handler returned an invalid result' }
+
+    await this.call('sendIntentResult', { resultId: e.resultId, ...outcome })
   }
 
   private appIdentifier(app: Fdc3AppIdentifier): AppIdentifier {
@@ -218,14 +221,22 @@ export class HostDesktopAgent implements DesktopAgent {
   }
 
   private resolution(info: Fdc3IntentResolutionInfo): IntentResolution {
+    // The host hands a result out once, so every getResult() call shares the
+    // first retrieval: same context, same Channel object, or same rejection.
+    let result: Promise<IntentResult> | undefined
+    const retrieve = async (): Promise<IntentResult> => {
+      const r = await this.call('getIntentResult', { resultId: info.resultId })
+      if (r.channel) return this.channel(r.channel)
+      if (r.context) return r.context as Context
+      return undefined
+    }
+
     return {
       source: this.appIdentifier(info.source),
       intent: info.intent,
-      getResult: async () => {
-        const result = await this.call('getIntentResult', { resultId: info.resultId })
-        if (result.channel) return this.channel(result.channel)
-        if (result.context) return result.context as Context
-        return undefined
+      getResult: () => {
+        result ??= retrieve()
+        return result
       },
     }
   }

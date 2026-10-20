@@ -30,6 +30,8 @@ public sealed class DesktopAgent
     private readonly AppDirectory _directory;
     private readonly IFdc3AppLauncher? _launcher;
     private readonly TimeSpan _launchTimeout;
+    private readonly TimeSpan _resultRetention;
+    private readonly TimeProvider _time;
 
     private readonly Dictionary<string, AppInstance> _instances = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ChannelState> _channels = new(StringComparer.Ordinal);
@@ -37,11 +39,24 @@ public sealed class DesktopAgent
     private readonly Dictionary<string, PendingResult> _results = new(StringComparer.Ordinal);
     private readonly List<PendingDelivery> _pendingDeliveries = [];
 
-    public DesktopAgent(AppDirectory directory, IFdc3AppLauncher? launcher = null, TimeSpan? launchTimeout = null)
+    /// <param name="launchTimeout">How long a launched app gets to connect and add the listener a pending context/intent is waiting for.</param>
+    /// <param name="resultRetention">
+    /// How long an intent's result is kept for the raiser to collect. Apps that
+    /// raise intents just for their side effect never call getResult(), so
+    /// without this the long-lived agent would hold every result forever.
+    /// </param>
+    public DesktopAgent(
+        AppDirectory directory,
+        IFdc3AppLauncher? launcher = null,
+        TimeSpan? launchTimeout = null,
+        TimeSpan? resultRetention = null,
+        TimeProvider? timeProvider = null)
     {
         _directory = directory;
         _launcher = launcher;
         _launchTimeout = launchTimeout ?? TimeSpan.FromSeconds(15);
+        _resultRetention = resultRetention ?? TimeSpan.FromMinutes(10);
+        _time = timeProvider ?? TimeProvider.System;
 
         foreach (var channel in RecommendedUserChannels)
         {
@@ -64,6 +79,9 @@ public sealed class DesktopAgent
 
     public AppDirectory Directory => _directory;
 
+    /// <summary>Intent results the agent is still holding (for tests).</summary>
+    internal int PendingResultCount { get { lock (_gate) return _results.Count; } }
+
     // Connection lifecycle ---------------------------------------------------
 
     /// <summary>
@@ -73,12 +91,17 @@ public sealed class DesktopAgent
     public Fdc3Connection Connect(string appId, IFdc3AppSink sink, string? instanceId = null)
     {
         instanceId ??= Guid.NewGuid().ToString();
+        List<PendingDelivery> launched;
         lock (_gate)
         {
             if (!_instances.TryAdd(instanceId, new AppInstance(appId, instanceId, sink)))
                 throw new InvalidOperationException($"FDC3 instance '{instanceId}' is already connected.");
+
+            // fdc3.open() without a context waits for the opened app to connect.
+            launched = TakePendingDeliveries(instanceId, PendingKind.Connect, _ => true);
         }
 
+        foreach (var pending in launched) pending.Delivered.TrySetResult(true);
         return new Fdc3Connection(this, appId, instanceId);
     }
 
@@ -100,10 +123,16 @@ public sealed class DesktopAgent
 
             _listeners.RemoveAll(l => l.InstanceId == instanceId);
 
-            orphanedResults = _results.Values
-                .Where(r => r.HandlerInstanceId == instanceId || r.RaiserInstanceId == instanceId)
-                .ToList();
-            foreach (var result in orphanedResults) _results.Remove(result.ResultId);
+            // Results this instance raised can't be collected any more: drop them.
+            // Results it was handling stay for their (still connected) raiser:
+            // completed ones keep their value, unfinished ones fail below.
+            foreach (var raised in _results.Values.Where(r => r.RaiserInstanceId == instanceId).ToList())
+            {
+                _results.Remove(raised.ResultId);
+                ReleasePrivateChannelIfAbandoned(raised);
+            }
+
+            orphanedResults = _results.Values.Where(r => r.HandlerInstanceId == instanceId).ToList();
 
             orphanedDeliveries = _pendingDeliveries.Where(d => d.InstanceId == instanceId).ToList();
             _pendingDeliveries.RemoveAll(d => d.InstanceId == instanceId);
@@ -111,7 +140,7 @@ public sealed class DesktopAgent
 
         outbox.Flush();
         foreach (var result in orphanedResults)
-            result.Completion.TrySetException(new Fdc3Exception(Fdc3Errors.NoResultReturned));
+            result.Fail(Fdc3Errors.NoResultReturned); // no-op for results already sent
         foreach (var delivery in orphanedDeliveries)
             delivery.Delivered.TrySetResult(false);
     }
@@ -306,6 +335,25 @@ public sealed class DesktopAgent
         _listeners.RemoveAll(l => l.InstanceId == instanceId && l.ChannelId == channel.Id);
         channel.Members.Remove(instanceId);
         channel.DisconnectedMembers.Add(instanceId);
+        ReleasePrivateChannelIfAbandoned(channel);
+    }
+
+    /// <summary>
+    /// Forgets a private channel once nobody can use it again: no members left
+    /// and no uncollected intent result that would hand it to someone.
+    /// </summary>
+    private void ReleasePrivateChannelIfAbandoned(ChannelState channel)
+    {
+        if (channel.Type != "private" || channel.Members.Count > 0) return;
+        if (_results.Values.Any(r => r.ResultChannelId == channel.Id)) return;
+
+        _channels.Remove(channel.Id);
+    }
+
+    private void ReleasePrivateChannelIfAbandoned(PendingResult result)
+    {
+        if (result.ResultChannelId is { } id && _channels.TryGetValue(id, out var channel))
+            ReleasePrivateChannelIfAbandoned(channel);
     }
 
     private void QueuePrivateChannelEvent(string fromInstanceId, ChannelState channel, string eventType, object? details, Outbox outbox)
@@ -450,11 +498,13 @@ public sealed class DesktopAgent
 
     internal void AddEventListener(AppInstance caller, Fdc3AddEventListenerRequest request)
     {
+        var outbox = new Outbox();
         lock (_gate)
         {
+            ChannelState? channel = null;
             if (request.ChannelId is not null)
             {
-                var channel = AccessibleChannel(caller, request.ChannelId);
+                channel = AccessibleChannel(caller, request.ChannelId);
                 if (channel.Type != "private") throw new Fdc3Exception(Fdc3Errors.InvalidArguments);
             }
 
@@ -463,7 +513,22 @@ public sealed class DesktopAgent
                 ChannelId = request.ChannelId,
                 EventType = request.EventType,
             });
+
+            // FDC3 2.2: a private channel's addContextListener handler also hears
+            // about listeners the other side added *before* it subscribed, so a
+            // producer that starts streaming on that event can't miss its consumer.
+            if (channel is not null && request.EventType is null or "addContextListener")
+            {
+                foreach (var existing in _listeners.Where(l =>
+                             l.Kind == ListenerKind.Context && l.ChannelId == channel.Id && l.InstanceId != caller.InstanceId))
+                {
+                    outbox.Add(caller.Sink, new Fdc3ApiEvent(request.ListenerId, "addContextListener",
+                        new Dictionary<string, object?> { ["contextType"] = existing.ContextType }));
+                }
+            }
         }
+
+        outbox.Flush();
     }
 
     private void AddListener(ListenerRegistration listener)
@@ -532,11 +597,15 @@ public sealed class DesktopAgent
         }
     }
 
-    /// <summary>Intent names some App Directory app explicitly declares for this context type.</summary>
+    /// <summary>
+    /// Intent names some App Directory app declares for this context type, by
+    /// the same rule as everywhere else (<see cref="IntentDefinition.Accepts"/>),
+    /// so an intent with no declared contexts accepts any.
+    /// </summary>
     private SortedSet<string> IntentsForContext(string contextType) =>
         new(_directory.Apps
                 .SelectMany(a => a.ListensFor)
-                .Where(kv => kv.Value.Contexts.Contains(contextType, StringComparer.Ordinal))
+                .Where(kv => kv.Value.Accepts(contextType))
                 .Select(kv => kv.Key),
             StringComparer.Ordinal);
 
@@ -624,7 +693,8 @@ public sealed class DesktopAgent
                 // Targeting a specific instance: prefer it over launching a fresh one.
                 var onInstance = candidates.Where(c => c.Target.InstanceId == instanceId).ToList();
                 if (onInstance.Count > 0) candidates = onInstance;
-                else if (!_instances.ContainsKey(instanceId)) throw new Fdc3Exception(Fdc3Errors.TargetInstanceUnavailable);
+                else if (!_instances.TryGetValue(instanceId, out var instance) || !SameApp(instance.AppId, request.App.AppId))
+                    throw new Fdc3Exception(Fdc3Errors.TargetInstanceUnavailable);
                 else candidates = candidates.Select(c => (c.Intent, c.Target with { InstanceId = instanceId })).ToList();
             }
 
@@ -689,6 +759,7 @@ public sealed class DesktopAgent
         PendingDelivery? pending = null;
         var outbox = new Outbox();
 
+        List<PendingResult> expired;
         lock (_gate)
         {
             if (instanceId is null)
@@ -697,7 +768,8 @@ public sealed class DesktopAgent
                 instanceId = Guid.NewGuid().ToString();
             }
 
-            _results[resultId] = new PendingResult(resultId, caller.InstanceId, instanceId);
+            expired = TakeExpiredResults();
+            _results[resultId] = new PendingResult(resultId, caller.InstanceId, instanceId, _time.GetUtcNow());
 
             var listener = _listeners.FirstOrDefault(l => l.InstanceId == instanceId && l.Kind == ListenerKind.Intent && l.Intent == intent);
             if (listener is not null && _instances.TryGetValue(instanceId, out var handler))
@@ -713,10 +785,22 @@ public sealed class DesktopAgent
         }
 
         outbox.Flush();
+        foreach (var result in expired) result.Fail(Fdc3Errors.NoResultReturned);
 
         if (pending is not null)
         {
-            if (launch is not null) Launch(launch, instanceId, pending);
+            if (launch is not null)
+            {
+                try
+                {
+                    Launch(launch, instanceId, pending);
+                }
+                catch
+                {
+                    lock (_gate) _results.Remove(resultId);
+                    throw;
+                }
+            }
 
             if (!await WaitForDeliveryAsync(pending))
             {
@@ -726,6 +810,20 @@ public sealed class DesktopAgent
         }
 
         return new Fdc3IntentResolutionInfo(new Fdc3AppIdentifier(target.AppId, instanceId), intent, resultId);
+    }
+
+    /// <summary>Removes results older than the retention window (the caller fails any still unfinished).</summary>
+    private List<PendingResult> TakeExpiredResults()
+    {
+        var cutoff = _time.GetUtcNow() - _resultRetention;
+        var expired = _results.Values.Where(r => r.CreatedAt < cutoff).ToList();
+        foreach (var result in expired)
+        {
+            _results.Remove(result.ResultId);
+            ReleasePrivateChannelIfAbandoned(result);
+        }
+
+        return expired;
     }
 
     internal async Task<Fdc3IntentResultInfo> GetIntentResultAsync(AppInstance caller, string resultId)
@@ -756,7 +854,11 @@ public sealed class DesktopAgent
         }
         finally
         {
-            lock (_gate) _results.Remove(resultId);
+            lock (_gate)
+            {
+                _results.Remove(resultId);
+                ReleasePrivateChannelIfAbandoned(result);
+            }
         }
     }
 
@@ -764,6 +866,7 @@ public sealed class DesktopAgent
     {
         PendingResult? result;
         Fdc3IntentResultInfo? info = null;
+        Fdc3Exception? invalid = null;
 
         lock (_gate)
         {
@@ -772,26 +875,40 @@ public sealed class DesktopAgent
 
             if (request.Error is null)
             {
-                if (request.ChannelId is not null)
+                try
                 {
-                    info = new Fdc3IntentResultInfo(null, AccessibleChannel(caller, request.ChannelId).Info);
+                    info = ValidateResult(caller, request);
+                    result.ResultChannelId = info.Channel?.Id;
                 }
-                else if (request.Context is { } context)
+                catch (Fdc3Exception ex)
                 {
-                    ContextTypeOf(context);
-                    info = new Fdc3IntentResultInfo(context.Clone(), null);
-                }
-                else
-                {
-                    info = new Fdc3IntentResultInfo(null, null);
+                    // E.g. a channel the handler already left: the raiser must
+                    // still hear back, so this counts as a rejected handler.
+                    invalid = ex;
                 }
             }
         }
 
         if (info is null)
-            result.Completion.TrySetException(new Fdc3Exception(Fdc3Errors.IntentHandlerRejected));
+            result.Fail(Fdc3Errors.IntentHandlerRejected);
         else
             result.Completion.TrySetResult(info);
+
+        if (invalid is not null) throw invalid;
+    }
+
+    private Fdc3IntentResultInfo ValidateResult(AppInstance caller, Fdc3SendIntentResultRequest request)
+    {
+        if (request.ChannelId is not null)
+            return new Fdc3IntentResultInfo(null, AccessibleChannel(caller, request.ChannelId).Info);
+
+        if (request.Context is { } context)
+        {
+            ContextTypeOf(context);
+            return new Fdc3IntentResultInfo(context.Clone(), null);
+        }
+
+        return new Fdc3IntentResultInfo(null, null);
     }
 
     // open -----------------------------------------------------------------------------
@@ -800,20 +917,28 @@ public sealed class DesktopAgent
     {
         var app = _directory.Find(request.App.AppId) ?? throw new Fdc3Exception(Fdc3Errors.AppNotFound);
         var instanceId = Guid.NewGuid().ToString();
-        PendingDelivery? pending = null;
 
+        // With a context: done once the app adds a matching context listener.
+        // Without one: once it connects, so the returned identifier is usable
+        // straight away (e.g. as a raiseIntent target).
+        PendingDelivery pending;
         if (request.Context is { } context)
         {
             var contextType = ContextTypeOf(context);
             var copy = context.Clone();
             pending = new PendingDelivery(instanceId, PendingKind.Context, contextType,
                 listenerId => new Fdc3ContextEvent(listenerId, copy, null));
-            lock (_gate) _pendingDeliveries.Add(pending);
         }
+        else
+        {
+            pending = new PendingDelivery(instanceId, PendingKind.Connect, "", _ => throw new InvalidOperationException());
+        }
+
+        lock (_gate) _pendingDeliveries.Add(pending);
 
         Launch(app, instanceId, pending);
 
-        if (pending is not null && !await WaitForDeliveryAsync(pending))
+        if (!await WaitForDeliveryAsync(pending))
             throw new Fdc3Exception(Fdc3Errors.AppTimeout);
 
         return new Fdc3AppIdentifier(app.AppId, instanceId);
@@ -839,7 +964,7 @@ public sealed class DesktopAgent
 
     private async Task<bool> WaitForDeliveryAsync(PendingDelivery pending)
     {
-        var finished = await Task.WhenAny(pending.Delivered.Task, Task.Delay(_launchTimeout));
+        var finished = await Task.WhenAny(pending.Delivered.Task, Task.Delay(_launchTimeout, _time));
         if (finished == pending.Delivered.Task) return pending.Delivered.Task.Result;
 
         lock (_gate) _pendingDeliveries.Remove(pending);
@@ -925,16 +1050,24 @@ public sealed class DesktopAgent
 
     private sealed record IntentTarget(string AppId, string? InstanceId, string? ResultType);
 
-    private sealed class PendingResult(string resultId, string raiserInstanceId, string handlerInstanceId)
+    private sealed class PendingResult(string resultId, string raiserInstanceId, string handlerInstanceId, DateTimeOffset createdAt)
     {
         public string ResultId { get; } = resultId;
         public string RaiserInstanceId { get; } = raiserInstanceId;
         public string HandlerInstanceId { get; } = handlerInstanceId;
+        public DateTimeOffset CreatedAt { get; } = createdAt;
+
+        /// <summary>Set when the handler returns a channel; keeps a private one alive until collected.</summary>
+        public string? ResultChannelId { get; set; }
+
         public TaskCompletionSource<Fdc3IntentResultInfo> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public void Fail(string error) => Completion.TrySetException(new Fdc3Exception(error));
     }
 
-    private enum PendingKind { Context, Intent }
+    /// <summary>Context/Intent: waiting for a matching listener. Connect: waiting for the instance to connect.</summary>
+    private enum PendingKind { Context, Intent, Connect }
 
     /// <summary>
     /// A context (from open) or intent (from raiseIntent) addressed to an
