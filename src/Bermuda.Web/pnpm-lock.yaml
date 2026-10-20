@@ -8,6 +8,9 @@ importers:
 
   .:
     dependencies:
+      '@finos/fdc3-standard':
+        specifier: 2.2.3
+        version: 2.2.3
       graphql:
         specifier: ^16.13.1
         version: 16.13.1
@@ -402,6 +405,15 @@ packages:
     engines: {node: '>=12'}
     cpu: [x64]
     os: [win32]
+
+  '@finos/fdc3-context@2.2.3':
+    resolution: {integrity: sha512-GTWDRUB1dw130KHe7Sz/mLFL/VMMv/sJgOmJmFANECdqcOlusqhHbpxZOAS0yq+yvOgXf908sipVVBL+8WukZA==}
+
+  '@finos/fdc3-schema@2.2.3':
+    resolution: {integrity: sha512-ICBEyX88A18CxaYSJrhuDAxj5hDLCpVZmMMl5xWKjYheppmuDVRq3KKVWp2W+fI1Omo8PPa8Clb3Czdjm7KiRA==}
+
+  '@finos/fdc3-standard@2.2.3':
+    resolution: {integrity: sha512-mFOzJtFv1MgUooW4b36uIXH7qYmevSQLDYNydftwHOn17rrAnMh+8diCx7H6EHgCpa43IiRX1V5uKQEHK2sxgg==}
 
   '@jridgewell/gen-mapping@0.3.13':
     resolution: {integrity: sha512-2kkt/7niJ6MgEPxF0bYdQ6etZaA+fQvDcLKckhy1yIQOzaoKjBBjSj63/aLVjYE3qhRt5dvM+uUyfCg6UKCBbA==}
@@ -1805,6 +1817,15 @@ snapshots:
 
   '@esbuild/win32-x64@0.21.5':
     optional: true
+
+  '@finos/fdc3-context@2.2.3': {}
+
+  '@finos/fdc3-schema@2.2.3': {}
+
+  '@finos/fdc3-standard@2.2.3':
+    dependencies:
+      '@finos/fdc3-context': 2.2.3
+      '@finos/fdc3-schema': 2.2.3
 
   '@jridgewell/gen-mapping@0.3.13':
     dependencies:

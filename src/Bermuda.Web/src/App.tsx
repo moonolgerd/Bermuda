@@ -1,4 +1,5 @@
 import { Suspense, useEffect } from 'react'
+import { ChannelPicker } from './components/ChannelPicker'
 import { IncidentsDashboard } from './components/IncidentsDashboard'
 import { bermudaHost } from './bridge'
 import './App.css'
@@ -15,7 +16,10 @@ function App() {
 
   return (
     <div>
-      <h1>Bermuda</h1>
+      <header className="app-header">
+        <h1>Bermuda</h1>
+        <ChannelPicker />
+      </header>
       <Suspense fallback={<p>Loading incidents…</p>}>
         <IncidentsDashboard />
       </Suspense>

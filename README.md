@@ -36,6 +36,7 @@ A Windows 10/11 desktop application built with a WPF/WebView2 native host, a .NE
 
 - **Dark theme** — dark Win32 title bar via DWMWA_USE_IMMERSIVE_DARK_MODE
 - **GraphQL + Relay** — type-safe queries with auto-generated TypeScript types
+- **FDC3 2.2 Desktop Agent** — standard `window.fdc3` in every host window: user/app/private channels, intents, `open`, an App Directory (see [FDC3](#fdc3))
 
 ## Prerequisites
 
@@ -57,17 +58,22 @@ The Aspire dashboard opens at `https://localhost:18888`. The WPF window launches
 ```
 src/
 ├── Bermuda/               # WPF host (WebView2, IPC bridge, dark title bar)
+│   └── fdc3-appd.json     # FDC3 App Directory
 ├── Bermuda.Api/           # ASP.NET Core + Hot Chocolate GraphQL API
 │   └── GraphQL/
 │       ├── Incident.cs    # Incident record + enums (Status, Priority)
 │       ├── IncidentRepository.cs
 │       └── IncidentQuery.cs
 ├── Bermuda.AppHost/       # .NET Aspire orchestration
+├── Bermuda.Fdc3/          # FDC3 Desktop Agent (channels, context, intents)
+├── Bermuda.Fdc3.Tests/    # xUnit tests for the agent (dotnet test)
 ├── Bermuda.ServiceDefaults/
 └── Bermuda.Web/           # Vite + React + TypeScript frontend
     ├── src/
     │   ├── bridge/        # WebView2 IPC wrapper (bermudaHost.invoke)
+    │   ├── fdc3/          # window.fdc3 over the IPC bridge
     │   ├── components/
+    │   │   ├── ChannelPicker.tsx        # FDC3 user channel selector
     │   │   ├── IncidentsDashboard.tsx   # Relay query root, selection state
     │   │   ├── IncidentsTable.tsx       # Sortable table
     │   │   └── IncidentMap.tsx          # react-leaflet map
@@ -82,9 +88,28 @@ Tests connect to the running WebView2 process via Chrome DevTools Protocol — n
 
 ```powershell
 cd src/Bermuda.Web
-pnpm e2e          # run all 22 tests
+pnpm e2e          # run all 25 tests
 pnpm e2e:ui       # open Playwright UI mode
 ```
+
+## FDC3
+
+Full behavioral spec: [docs/fdc3.md](docs/fdc3.md).
+
+The host is an [FDC3 2.2](https://fdc3.finos.org) Desktop Agent. Every host window's page is one connected app instance and gets a standard `window.fdc3` (an `fdc3Ready` event fires once it's installed), so any FDC3 code works unchanged. The host injects it into **every** page it shows, before the page's own scripts run (`AddScriptToExecuteOnDocumentCreatedAsync` with `src/Bermuda/Preload/fdc3-preload.js`), so App Directory apps need no Bermuda code — `public/fdc3-probe.html` is a plain-HTML sample:
+
+```ts
+await window.fdc3.joinUserChannel('fdc3.channel.1')
+await window.fdc3.broadcast({ type: 'bermuda.incident', id: { incidentId: '7' } })
+const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
+```
+
+- **Where it lives** — the agent is `src/Bermuda.Fdc3/DesktopAgent.cs` (one per process, shared by all windows). `src/Bermuda.Web/src/fdc3/` implements the `@finos/fdc3-standard` `DesktopAgent` interface by calling `fdc3.*` `invoke()` commands (the `IFdc3Commands` interface in `Bermuda.IpcContract/Fdc3Contract.cs`, implemented per app instance by `Fdc3Connection`, so their TS types are generated like everything else) and dispatching the host's `fdc3.context` / `fdc3.intent` / `fdc3.event` pushes to registered handlers.
+- **Supported** — the 8 recommended user channels, app channels, private channels (with their events), `broadcast`/`addContextListener`/`getCurrentContext`, `findIntent`/`findIntentsByContext`/`raiseIntent`/`raiseIntentForContext`/`addIntentListener` with results (context or channel), `open`, `findInstances`, `getAppMetadata`, `getInfo`, and the `userChannelChanged` event. Not yet: Desktop Agent Bridging, or the Web Connection Protocol for browser apps outside the host.
+- **Preload bundle** — `fdc3-preload.js` is built from `src/Bermuda.Web/src/fdc3/preload.ts` by `pnpm build:preload` (part of `pnpm build`) and committed, like `ipc.d.ts`, so the host builds without Node; CI fails if it's out of date. Re-run `pnpm build:preload` after touching anything under `src/fdc3/`.
+- **App Directory** — `src/Bermuda/fdc3-appd.json` uses the AppD v2 `applications` shape; relative `details.url`s resolve against `WEB_URL`. `fdc3.open` (or raising an intent at an app that isn't running) opens the app in a new host window and resolves once the app has connected (and, if you passed a context, registered a listener for it), or rejects with `AppTimeout`. Intent results the raiser never collects are dropped after 10 minutes.
+- **No resolver UI yet** — when an intent has several possible targets the agent picks the single running instance with a listener, else the single App Directory app to launch; anything more ambiguous rejects with `ResolverUnavailable`, so pass a target `app` (`{ appId, instanceId }`) to disambiguate.
+- **In the app** — the channel picker in the header joins/leaves a user channel. Selecting an incident broadcasts a `bermuda.incident` context; incidents broadcast by other apps on the same channel, or raised via the `ViewIncident` intent, get selected.
 
 ## Other useful commands
 
@@ -96,7 +121,7 @@ dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 
 ## IPC — Web ↔ Host
 
-The frontend calls the WPF host via `bermudaHost.invoke(command, payload)` (fire-and-forget or request/response with UUID correlation). The host pushes events back with `CoreWebView2.PostWebMessageAsJson`. The request/response envelopes are `[IpcType]`-marked records (`IpcRequest`, `HostResponse` in `Bermuda.IpcContract`) generated into `ipc.d.ts` like everything else in this section — `MainWindow` serializes them with `JsonNamingPolicy.CamelCase` (`HostToWebJson`) specifically so the wire format matches those generated (camelCase) shapes.
+The frontend calls the WPF host via `bermudaHost.invoke(command, payload)` (fire-and-forget or request/response with UUID correlation). The host pushes events back with `CoreWebView2.PostWebMessageAsJson`. The request/response envelopes are `[IpcType]`-marked records (`IpcRequest`, `HostResponse` in `Bermuda.IpcContract`) generated into `ipc.d.ts` like everything else in this section — `MainWindow` reads and writes every message with `JsonSerializerOptions.Web` (camelCase out, case-insensitive in) so the wire format matches those generated (camelCase) shapes.
 
 ```
 Web                              WPF Host
@@ -139,12 +164,12 @@ bermudaHost.window.setProgressState('indeterminate'); // 'none' | 'indeterminate
 window.chrome.webview.hostObjects.windowController.SetProgressValue(0.6); // 0–1
 ```
 
-`invoke()` commands are allow-listed on the host and return `{ error }` when unknown. Window control has no allow-list to maintain — only the members declared on `WindowScriptHost` are ever reachable from script.
+`invoke()` commands are allow-listed on the host (only methods of `[IpcCommands]` interfaces are reachable, with the payload bound to the method's parameter type) and return `{ error }` when unknown. Window control has no allow-list to maintain — only the members declared on `WindowScriptHost` are ever reachable from script.
 
 `IncidentsDashboard` uses `setOverlay`/`ClearOverlayIcon` to badge the taskbar icon with the count of open critical incidents (`bridge/overlayBadge.ts` renders the badge to a PNG data URL via `<canvas>`), so it stays visible even when the app isn't focused. `App`/`IncidentsDashboard` also set an indeterminate taskbar progress bar while the initial incidents query is loading, clearing it once data is ready.
 
 ### Contract + codegen
 
-`Bermuda.IpcContract` is the single source of truth for all three: `[IpCommand]` marks an `invoke()` command (e.g. `ping`), `[IpcHostObject]` marks a class projected via `AddHostObjectToScript` (e.g. `WindowScriptHost`), and `[IpcType]` marks a plain record/enum whose shape should be generated even though nothing else references it — e.g. `WindowStateSnapshot` (what `getState()` assembles by hand, since WebView2 host-object methods can't return nested structured data directly) or `TaskbarProgressState` (the valid strings for `SetProgressState`, converted by name to WPF's own enum in `MainWindow`). `Bermuda.IpcContract.SourceGenerator` runs as an analyzer on the `Bermuda` project, reflects all three attributes, and writes `src/Bermuda.Web/src/ipc/__generated__/ipc.d.ts` on every build (deliberately not Relay's `src/__generated__/` artifact directory, which `relay-compiler` prunes of files it didn't generate) — that file is committed (it's small, and it lets the frontend build without needing a prior `dotnet build`, e.g. in CI's MSIX publish job).
+`Bermuda.IpcContract` is the single source of truth for all three: `[IpcCommands("prefix")]` marks an interface whose methods are `invoke()` commands — the signature is the contract (single parameter = payload, return type = result, `Task<T>` unwrapped, name = `prefix.camelCaseMethod` minus `Async`), e.g. `IHostCommands.Ping()` → `ping` and `IFdc3Commands.RaiseIntentAsync(Fdc3RaiseIntentRequest)` → `fdc3.raiseIntent`, implemented by `HostBridge` and `Fdc3Connection` respectively and dispatched by `IpcCommand.InvokeAsync`; `[IpcHostObject]` marks a class projected via `AddHostObjectToScript` (e.g. `WindowScriptHost`), and `[IpcType]` marks a plain record/enum whose shape should be generated even though no command references it (records a command's parameter or result reaches are emitted automatically) — e.g. `WindowStateSnapshot` (what `getState()` assembles by hand, since WebView2 host-object methods can't return nested structured data directly) or `TaskbarProgressState` (the valid strings for `SetProgressState`, converted by name to WPF's own enum in `MainWindow`). `Bermuda.IpcContract.SourceGenerator` runs as an analyzer on the `Bermuda` project, reads all three, and writes `src/Bermuda.Web/src/ipc/__generated__/ipc.d.ts` on every build (deliberately not Relay's `src/__generated__/` artifact directory, which `relay-compiler` prunes of files it didn't generate) — that file is committed (it's small, and it lets the frontend build without needing a prior `dotnet build`, e.g. in CI's MSIX publish job).
 
 If you're touching any hand-written type in `bridge/index.ts` that mirrors a C# shape, check whether it can be `[IpcType]`-generated instead — that's how `IpcRequest`/`HostResponse`/`WindowStateSnapshot`/`TaskbarProgressState` all ended up there, replacing what used to be hand-duplicated (and, in one case — `HostResponse`'s casing — actually mismatched) interfaces.

@@ -3,8 +3,13 @@ namespace Bermuda.IpcContract;
 /// <summary>Response to <c>ping</c>.</summary>
 public sealed record PingResult(bool Pong);
 
-[IpCommand("ping", "undefined", nameof(PingResult), "Health check echoed back by the host.")]
-internal sealed class PingCommand;
+/// <summary>Host-level commands (no prefix). Implemented by <c>HostBridge</c>.</summary>
+[IpcCommands]
+public interface IHostCommands
+{
+    /// <summary>Health check echoed back by the host.</summary>
+    PingResult Ping();
+}
 
 /// <summary>
 /// A postMessage request from the web side to <c>HostBridge</c>. <c>Payload</c>

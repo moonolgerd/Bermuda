@@ -5,7 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "relay-compiler && tsc -b && vite build",
+    "build": "relay-compiler && tsc -b && vite build && pnpm build:preload",
+    "build:preload": "vite build --config vite.preload.config.ts",
     "relay": "relay-compiler",
     "relay:watch": "node scripts/relay-watch.mjs",
     "relay:schema": "node scripts/download-schema.mjs",
@@ -16,6 +17,7 @@
     "e2e:ui": "playwright test --ui"
   },
   "dependencies": {
+    "@finos/fdc3-standard": "2.2.3",
     "graphql": "^16.13.1",
     "leaflet": "^1.9.4",
     "react": "^19.2.4",

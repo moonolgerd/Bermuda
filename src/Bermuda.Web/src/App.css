@@ -39,3 +39,10 @@
 .read-the-docs {
   color: #888;
 }
+
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}

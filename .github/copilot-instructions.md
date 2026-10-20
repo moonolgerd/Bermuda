@@ -134,8 +134,8 @@ await provide(page)
 
 | Job | Runner | Trigger | Does |
 |---|---|---|---|
-| `build` | `windows-latest` | every push/PR | dotnet build, lint, Vitest, pnpm build |
-| `e2e` | `self-hosted` | after `build` | full stack via `aspire run`, 22 Playwright tests |
+| `build` | `windows-latest` | every push/PR | dotnet build, dotnet test, lint, Vitest, pnpm build |
+| `e2e` | `self-hosted` | after `build` | full stack via `aspire run`, 25 Playwright tests |
 | `publish` | `windows-latest` | `v*.*.*.*` tags | CreateMsix, GitHub Release with `.msix` asset |
 
 Self-hosted runner needed for `e2e` because WebView2 requires an interactive desktop session.
@@ -145,7 +145,7 @@ MSIX signing: add `MSIX_CERT_BASE64` (base64 PFX) and `MSIX_CERT_PASSWORD` secre
 ## Security
 
 - `AreDefaultContextMenusEnabled = false` and `AreDevToolsEnabled = false` in Release builds
-- Validate and allowlist all IPC command names in `HostBridge`
+- IPC commands are methods on `[IpcCommands]` interfaces in `Bermuda.IpcContract`; `HostBridge` only dispatches those (typed payloads), never raw command strings
 - Never pass unsanitised JS input into C# file paths or shell commands
 - Do not expose sensitive .NET APIs via `AddHostObjectToScript`
 
@@ -294,7 +294,7 @@ window.chrome.webview.addEventListener('message', (e) => {
 - **`AreDefaultContextMenusEnabled = false`** in production builds
 - **`AreDevToolsEnabled = false`** in production builds; enable only when `#DEBUG`
 - Never pass unsanitised user input from JS into C# file paths or shell commands
-- Validate and allowlist all IPC command names in `HostBridge.HandleAsync`
+- Declare new IPC commands as methods on an `[IpcCommands]` interface — `HostBridge.HandleAsync` only dispatches what the contract declares
 - Do not expose sensitive .NET APIs via `AddHostObjectToScript`
 
 ## Testing

@@ -36,6 +36,9 @@ jobs:
       - name: Build .NET solution
         run: dotnet build Bermuda.slnx --configuration Release
 
+      - name: .NET unit tests
+        run: dotnet test Bermuda.slnx --configuration Release --no-build
+
       - name: Lint
         working-directory: src/Bermuda.Web
         run: pnpm lint
@@ -47,6 +50,11 @@ jobs:
       - name: Build frontend
         working-directory: src/Bermuda.Web
         run: pnpm build
+
+      # fdc3-preload.js is committed (the host builds without Node), so make
+      # sure it matches src/Bermuda.Web/src/fdc3.
+      - name: Check committed FDC3 preload is up to date
+        run: git diff --exit-code -- src/Bermuda/Preload
 
   # ─── E2E (requires a Windows desktop runner) ──────────────────────────────
   #

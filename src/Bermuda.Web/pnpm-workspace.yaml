@@ -1,0 +1,6 @@
+# pnpm 11 fails `pnpm install` when a dependency has a build script nobody has
+# decided on. esbuild (used by Vite and Vitest) is the only one; its postinstall
+# just double-checks the platform binary that already arrives as an optional
+# dependency, so it's declined rather than run.
+allowBuilds:
+  esbuild: false
