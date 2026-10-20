@@ -94,6 +94,8 @@ pnpm e2e:ui       # open Playwright UI mode
 
 ## FDC3
 
+Full behavioral spec: [docs/fdc3.md](docs/fdc3.md).
+
 The host is an [FDC3 2.2](https://fdc3.finos.org) Desktop Agent. Every host window's page is one connected app instance and gets a standard `window.fdc3` (an `fdc3Ready` event fires once it's installed), so any FDC3 code works unchanged. The host injects it into **every** page it shows, before the page's own scripts run (`AddScriptToExecuteOnDocumentCreatedAsync` with `src/Bermuda/Preload/fdc3-preload.js`), so App Directory apps need no Bermuda code — `public/fdc3-probe.html` is a plain-HTML sample:
 
 ```ts
