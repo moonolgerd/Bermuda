@@ -15,17 +15,15 @@ function App() {
   }, [])
 
   return (
-    <>
-      <main className="content">
-        <h1>
-          <img className="heading-logo" src={logo} alt="" />
-          Bermuda
-        </h1>
-        <Suspense fallback={<p>Loading incidents…</p>}>
-          <IncidentsDashboard />
-        </Suspense>
-      </main>
-    </>
+    <main className="content">
+      <h1>
+        <img className="heading-logo" src={logo} alt="" />
+        Bermuda
+      </h1>
+      <Suspense fallback={<p>Loading incidents…</p>}>
+        <IncidentsDashboard />
+      </Suspense>
+    </main>
   )
 }
 

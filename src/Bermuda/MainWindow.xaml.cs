@@ -22,6 +22,11 @@ public partial class MainWindow : Window, IWindowController
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
     };
 
+    // The web side sends camelCase requests ({ id, command, payload }); the C# records
+    // use PascalCase members. Web defaults are camelCase + case-insensitive binding, so
+    // the request id actually binds and the response can be matched to its caller.
+    private static readonly JsonSerializerOptions WebToHostJson = new(JsonSerializerDefaults.Web);
+
     private readonly HostBridge _bridge;
     private readonly string _webUrl;
     private readonly int _cdpPort;
@@ -148,7 +153,7 @@ public partial class MainWindow : Window, IWindowController
         IpcRequest? req;
         try
         {
-            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson);
+            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson, WebToHostJson);
         }
         catch
         {
@@ -317,8 +322,8 @@ public partial class MainWindow : Window, IWindowController
         });
     }
 
-    [DllImport("user32.dll")]
-    private static extern bool NativeIsWindowForeground(IntPtr hwnd);
+    [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
+    private static extern IntPtr NativeGetForegroundWindow();
 
     private IntPtr _nativeHandle;
 
@@ -338,6 +343,6 @@ public partial class MainWindow : Window, IWindowController
 
     private bool IsWindowForeground()
     {
-        return NativeWindowHandle != IntPtr.Zero && NativeIsWindowForeground(NativeWindowHandle);
+        return NativeWindowHandle != IntPtr.Zero && NativeGetForegroundWindow() == NativeWindowHandle;
     }
 }
