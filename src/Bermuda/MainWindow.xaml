@@ -8,6 +8,11 @@
         Title="Bermuda" Height="768" Width="1280"
         Icon="Assets/app.ico">
     <Grid>
-        <wv2:WebView2 x:Name="_webView" />
+        <!-- Client title bar mode only: fills everything below the caption strip. The strip
+             itself stays transparent so Windows can draw its caption buttons there. -->
+        <Border x:Name="_fill" Background="#2d2d2d" Visibility="Collapsed" />
+        <Grid x:Name="_root">
+            <wv2:WebView2 x:Name="_webView" />
+        </Grid>
     </Grid>
 </Window>

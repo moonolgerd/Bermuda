@@ -31,6 +31,8 @@ function windowController() {
 }
 
 const windowApi = {
+  /** True when the web app should draw the title bar; false when the host shows the native one (TITLE_BAR setting). */
+  usesClientTitleBar: (): Promise<boolean> => windowController().UsesClientTitleBar,
   /** Fetch the current window bounds and state. */
   getState: async (): Promise<WindowStateSnapshot> => {
     const c = windowController()

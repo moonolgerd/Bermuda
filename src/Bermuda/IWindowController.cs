@@ -8,6 +8,13 @@ namespace Bermuda;
 /// </summary>
 public interface IWindowController
 {
+    /// <summary>
+    /// True when the web app draws the title bar (the native caption is removed);
+    /// false when the standard Windows title bar is used. Set once at startup from the
+    /// <c>TITLE_BAR</c> setting (<c>client</c> | <c>native</c>).
+    /// </summary>
+    bool UsesClientTitleBar { get; }
+
     bool IsMaximized { get; }
     bool IsMinimized { get; }
     bool IsFocused { get; }
