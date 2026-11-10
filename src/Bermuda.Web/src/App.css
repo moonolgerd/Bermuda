@@ -29,6 +29,13 @@
   height: 2.25rem;
 }
 
+/* Narrow windows: the dashboard stacks (see IncidentsDashboard.module.css), so let the page scroll. */
+@media (max-width: 900px) {
+  .content {
+    overflow-y: auto;
+  }
+}
+
 .content h1 {
   display: flex;
   align-items: center;
