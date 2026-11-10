@@ -1,0 +1,20 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "aspire",
+      "runtimeExecutable": "aspire",
+      "runtimeArgs": ["run", "--non-interactive"],
+      "port": 15286,
+      "autoPort": false
+    },
+    {
+      "name": "aspire-native",
+      "runtimeExecutable": "aspire",
+      "runtimeArgs": ["run", "--non-interactive"],
+      "port": 15286,
+      "autoPort": false,
+      "env": { "TITLE_BAR": "native" }
+    }
+  ]
+}

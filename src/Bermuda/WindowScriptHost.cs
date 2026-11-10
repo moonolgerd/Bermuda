@@ -23,6 +23,7 @@ public sealed class WindowScriptHost
         _window = window;
     }
 
+    public bool UsesClientTitleBar => _window.UsesClientTitleBar;
     public bool IsMaximized => _window.IsMaximized;
     public bool IsMinimized => _window.IsMinimized;
     public bool IsFocused => _window.IsFocused;

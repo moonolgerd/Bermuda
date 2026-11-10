@@ -1,4 +1,5 @@
 import { Suspense, useEffect } from 'react'
+import logo from './assets/bermuda.svg'
 import { IncidentsDashboard } from './components/IncidentsDashboard'
 import { bermudaHost } from './bridge'
 import './App.css'
@@ -14,12 +15,17 @@ function App() {
   }, [])
 
   return (
-    <div>
-      <h1>Bermuda</h1>
-      <Suspense fallback={<p>Loading incidents…</p>}>
-        <IncidentsDashboard />
-      </Suspense>
-    </div>
+    <>
+      <main className="content">
+        <h1>
+          <img className="heading-logo" src={logo} alt="" />
+          Bermuda
+        </h1>
+        <Suspense fallback={<p>Loading incidents…</p>}>
+          <IncidentsDashboard />
+        </Suspense>
+      </main>
+    </>
   )
 }
 

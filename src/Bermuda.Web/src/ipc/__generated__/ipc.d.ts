@@ -36,6 +36,7 @@ export interface WindowStateSnapshot {
 export type TaskbarProgressState = 'none' | 'indeterminate' | 'normal' | 'error' | 'paused';
 
 export interface WindowControllerHostObject {
+  readonly UsesClientTitleBar: Promise<boolean>;
   readonly IsMaximized: Promise<boolean>;
   readonly IsMinimized: Promise<boolean>;
   readonly IsFocused: Promise<boolean>;

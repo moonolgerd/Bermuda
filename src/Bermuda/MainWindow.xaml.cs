@@ -25,6 +25,16 @@ public partial class MainWindow : Window, IWindowController
     private readonly HostBridge _bridge;
     private readonly string _webUrl;
     private readonly int _cdpPort;
+    private readonly bool _clientTitleBar;
+
+    // Resize border width and caption strip height used in client title bar mode.
+    private const double ClientResizeBorder = 3;
+    private const double ClientCaptionHeight = 40;
+
+    // Left/right/bottom: keep a strip of the WPF window uncovered so the invisible resize
+    // border stays reachable (the WebView2 HWND would otherwise swallow the mouse). Top is 0:
+    // the caption strip itself is that border.
+    private static readonly Thickness ClientNormalMargin = new(ClientResizeBorder, 0, ClientResizeBorder, ClientResizeBorder);
 
     public MainWindow(IConfiguration configuration)
     {
@@ -32,7 +42,57 @@ public partial class MainWindow : Window, IWindowController
         _bridge = new HostBridge();
         _webUrl = configuration["WEB_URL"] ?? "http://localhost:5555";
         _cdpPort = configuration.GetValue("CDP_PORT", 0);
+
+        // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native
+        // keeps the standard Windows caption. Read once at startup — the web app asks the
+        // host which mode is active (IWindowController.UsesClientTitleBar) and only renders
+        // its own title bar in client mode.
+        _clientTitleBar = !string.Equals(configuration["TITLE_BAR"], "native", StringComparison.OrdinalIgnoreCase);
+        if (_clientTitleBar)
+            ApplyClientTitleBar();
+
         Loaded += OnLoaded;
+        StateChanged += OnStateChanged;
+    }
+
+    // Client title bar mode: no native title text/icon, but Windows still draws the real
+    // minimize/maximize/close buttons (UseAeroCaptionButtons) — which is what gives the
+    // Windows 11 Snap Layouts flyout on the maximize button. The caption strip is host-owned
+    // and the WebView2 starts below it: WebView2's child window answers hit-tests itself, so
+    // the buttons must not sit underneath it. Dragging, double-click-to-maximize and the
+    // system menu all come from the strip being the window's caption.
+    private void ApplyClientTitleBar()
+    {
+        WindowChrome.SetWindowChrome(this, new WindowChrome
+        {
+            CaptionHeight = ClientCaptionHeight,
+            ResizeBorderThickness = new Thickness(ClientResizeBorder),
+            GlassFrameThickness = new Thickness(0, ClientCaptionHeight, 0, 0),
+            UseAeroCaptionButtons = true,
+            CornerRadius = new CornerRadius(0),
+        });
+        // Transparent so the glass strip (and the caption buttons Windows draws in it) show
+        // through; DWMWA_CAPTION_COLOR (set in OnLoaded) gives the strip its colour.
+        Background = System.Windows.Media.Brushes.Transparent;
+        _fill.Margin = new Thickness(0, ClientCaptionHeight, 0, 0);
+        _fill.Visibility = Visibility.Visible;
+        _root.Margin = ClientNormalMargin;
+        _webView.Margin = new Thickness(0, ClientCaptionHeight, 0, 0);
+    }
+
+    // A maximized WindowChrome window overhangs the screen by its resize border; inset the
+    // content by the same amount so the caption strip and buttons aren't clipped.
+    private void OnStateChanged(object? sender, EventArgs e)
+    {
+        if (!_clientTitleBar) return;
+
+        _root.Margin = WindowState == System.Windows.WindowState.Maximized
+            ? new Thickness(
+                SystemParameters.WindowResizeBorderThickness.Left + SystemParameters.FixedFrameVerticalBorderWidth,
+                SystemParameters.WindowResizeBorderThickness.Top + SystemParameters.FixedFrameHorizontalBorderHeight,
+                SystemParameters.WindowResizeBorderThickness.Right + SystemParameters.FixedFrameVerticalBorderWidth,
+                SystemParameters.WindowResizeBorderThickness.Bottom + SystemParameters.FixedFrameHorizontalBorderHeight)
+            : ClientNormalMargin;
     }
 
     [DllImport("dwmapi.dll", PreserveSig = true)]
@@ -44,6 +104,19 @@ public partial class MainWindow : Window, IWindowController
         var hwnd = new WindowInteropHelper(this).Handle;
         int dark = 1;
         DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref dark, sizeof(int));
+
+        if (_clientTitleBar)
+        {
+            // WindowChrome with no caption drops the system's default rounding; ask DWM
+            // for rounded corners explicitly (Windows 11+, ignored on Windows 10).
+            int captionColor = 0x002d2d2d; // COLORREF (0x00BBGGRR), matches the page background
+            DwmSetWindowAttribute(hwnd, 35 /* DWMWA_CAPTION_COLOR */, ref captionColor, sizeof(int));
+            int noBackdrop = 1; // DWMSBT_NONE
+            DwmSetWindowAttribute(hwnd, 38 /* DWMWA_SYSTEMBACKDROP_TYPE */, ref noBackdrop, sizeof(int));
+
+            int round = 2; // DWMWCP_ROUND
+            DwmSetWindowAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, ref round, sizeof(int));
+        }
 
         if (_cdpPort > 0)
         {
@@ -97,6 +170,8 @@ public partial class MainWindow : Window, IWindowController
     }
 
     // IWindowController -------------------------------------------------------
+
+    public bool UsesClientTitleBar => _clientTitleBar;
 
     public bool IsMaximized => base.WindowState == System.Windows.WindowState.Maximized;
     public bool IsMinimized => base.WindowState == System.Windows.WindowState.Minimized;
