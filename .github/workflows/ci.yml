@@ -57,11 +57,11 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: dotnet publish src/Bermuda/Bermuda.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/publish -p:PublishSingleFile=false -p:PublishReadyToRun=false
 
-      # The native side app (src/Bermuda.NativeApp) ships inside Bermuda's MSIX as a second application,
-      # so it is published into the same folder (shared runtime/library files are identical).
-      - name: Publish self-contained native app into the same folder
+      # The native side apps listed in fdc3-appd.json ship inside Bermuda's MSIX as more applications, so they
+      # are published into the same folder (shared runtime/library files are identical).
+      - name: Publish self-contained native apps into the same folder
         if: startsWith(github.ref, 'refs/tags/v')
-        run: dotnet publish src/Bermuda.NativeApp/Bermuda.NativeApp.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/publish -p:PublishSingleFile=false -p:PublishReadyToRun=false
+        run: dotnet msbuild src/Bermuda/Bermuda.csproj -t:PublishNativeApps -p:Configuration=Release -p:NativeAppsPublishDir=${{ github.workspace }}/artifacts/publish/
 
       - name: Upload self-contained app
         if: startsWith(github.ref, 'refs/tags/v')

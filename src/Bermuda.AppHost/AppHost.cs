@@ -1,3 +1,5 @@
+using System.Text.Json;
+
 var builder = DistributedApplication.CreateBuilder(args);
 
 var api = builder.AddProject<Projects.Bermuda_Api>("api");
@@ -17,10 +19,20 @@ var host = builder.AddProject<Projects.Bermuda>("host")
     .WaitFor(web)
     .WaitFor(api);
 
-// A native FDC3 side app: joins the host's agent over the gRPC named pipe
-// (both use the default per-user pipe name; it reconnects until the pipe is up).
-builder.AddProject<Projects.Bermuda_NativeApp>("native-app")
-    .WaitFor(host);
+// The native FDC3 side apps are discovered from the App Directory (type "native" with details.project), so
+// adding one is a one-line edit of fdc3-appd.json. They join the host's agent over the gRPC named pipe (the
+// default per-user pipe name) and reconnect until it is up.
+var appDirectory = Path.Combine(builder.AppHostDirectory, "..", "Bermuda", "fdc3-appd.json");
+foreach (var app in JsonDocument.Parse(File.ReadAllText(appDirectory), new JsonDocumentOptions { CommentHandling = JsonCommentHandling.Skip, AllowTrailingCommas = true })
+             .RootElement.GetProperty("applications").EnumerateArray())
+{
+    if (app.GetProperty("type").GetString() != "native"
+        || !app.TryGetProperty("details", out var details)
+        || !details.TryGetProperty("project", out var project)) continue;
+
+    builder.AddProject(app.GetProperty("appId").GetString()!, Path.GetFullPath(Path.Combine(Path.GetDirectoryName(appDirectory)!, project.GetString()!)))
+        .WaitFor(host);
+}
 
 builder.Build().Run();
 

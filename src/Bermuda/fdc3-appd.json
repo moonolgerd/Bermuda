@@ -6,6 +6,10 @@
       "title": "Native Incidents",
       "description": "Sample native side app (Bermuda.NativeApp) connected over gRPC on a named pipe. Acknowledges incidents it receives.",
       "type": "native",
+      "details": {
+        "path": "Bermuda.NativeApp.exe",
+        "project": "../Bermuda.NativeApp/Bermuda.NativeApp.csproj"
+      },
       "interop": {
         "intents": {
           "listensFor": {

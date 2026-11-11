@@ -113,16 +113,41 @@
   </ItemGroup>
 
   <!--
+    Native side apps are discovered from the FDC3 App Directory, fdc3-appd.json: every "type": "native" entry with
+    details.path (its exe in the package) and details.project (the .csproj that builds it, relative to the file).
+    Adding one is a one-line edit of that file; no project, manifest or script names it. native-apps.ps1 reads it.
+  -->
+  <Target Name="_ReadNativeApps">
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\native-apps.ps1&quot; -Directory &quot;$(MSBuildProjectDirectory)\fdc3-appd.json&quot; -Mode List" ConsoleToMSBuild="true" StandardOutputImportance="low">
+      <Output TaskParameter="ConsoleOutput" ItemName="_NativeAppLine" />
+    </Exec>
+    <ItemGroup>
+      <NativeApp Include="$([System.String]::Copy('%(_NativeAppLine.Identity)').Split('|')[0])">
+        <Exe>$([System.String]::Copy('%(_NativeAppLine.Identity)').Split('|')[1])</Exe>
+        <Project>$([System.String]::Copy('%(_NativeAppLine.Identity)').Split('|')[2])</Project>
+      </NativeApp>
+    </ItemGroup>
+  </Target>
+
+  <!-- Publishes every native app's project (self-contained, win-x64) into NativeAppsPublishDir. CI calls this
+       for tagged releases; CreateMsix calls it unless MsixInputDir is given. -->
+  <Target Name="PublishNativeApps" DependsOnTargets="_ReadNativeApps">
+    <Error Condition="'$(NativeAppsPublishDir)' == ''" Text="Set NativeAppsPublishDir." />
+    <Error Condition="'%(NativeApp.Identity)' != '' and '%(NativeApp.Project)' == ''" Text="Native app '%(NativeApp.Identity)' in fdc3-appd.json has no details.project, so it cannot be built into the package." />
+    <MSBuild Condition="'%(NativeApp.Project)' != ''" Projects="%(NativeApp.Project)" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(NativeAppsPublishDir);PublishSingleFile=false;PublishReadyToRun=false" />
+  </Target>
+
+  <!--
     CreateMsix target
     =================
-    1. dotnet publish (Bermuda, then Bermuda.NativeApp into the same folder) → self-contained win-x64 output, unless MsixInputDir is already that output
+    1. dotnet publish (Bermuda, then every native app of fdc3-appd.json into the same folder) → self-contained win-x64 output, unless MsixInputDir is already that output
     2. Stage published files + AppxManifest.xml + Assets/
     3. winapp pack → Bermuda_<version>_x64.msix (signed when MsixSigningCert is set)
 
     Usage:
       dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
   -->
-  <Target Name="CreateMsix">
+  <Target Name="CreateMsix" DependsOnTargets="_ReadNativeApps">
 
     <PropertyGroup>
       <_PublishDir Condition="'$(MsixInputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
@@ -136,10 +161,10 @@
     <!-- 1. Publish self-contained win-x64, unless the caller already did. -->
     <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
 
-    <!-- The native side app is a second application of this package: publish it into the same folder (their
-         shared runtime and library files are identical, so the folder just merges). -->
-    <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="..\Bermuda.NativeApp\Bermuda.NativeApp.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
-    <Error Condition="!Exists('$(_PublishDir)Bermuda.NativeApp.exe')" Text="'$(_PublishDir)' has no Bermuda.NativeApp.exe. The package contains the native app too: publish src/Bermuda.NativeApp (self-contained, win-x64) into the same folder." />
+    <!-- The native side apps listed in fdc3-appd.json are more applications of this package: publish them into
+         the same folder (their shared runtime and library files are identical, so the folder just merges). -->
+    <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="$(MSBuildProjectFullPath)" Targets="PublishNativeApps" Properties="Configuration=$(Configuration);NativeAppsPublishDir=$(_PublishDir)" />
+    <Error Condition="'%(NativeApp.Identity)' != '' and !Exists('$(_PublishDir)%(NativeApp.Exe)')" Text="'$(_PublishDir)' has no %(NativeApp.Exe), the executable of native app '%(NativeApp.Identity)' in fdc3-appd.json. Publish its project (self-contained, win-x64) into the same folder." />
 
     <!-- 2. Prepare a clean staging directory -->
     <RemoveDir Directories="$(_StagingDir)" />
@@ -160,6 +185,8 @@
       <_ManifestText>$([System.Text.RegularExpressions.Regex]::Replace('$(_ManifestText)', '(?s)(&lt;Identity[^&gt;]*?Version=")[^"]*(")', '${1}$(MsixVersion)${2}'))</_ManifestText>
     </PropertyGroup>
     <WriteLinesToFile File="$(_StagingDir)appxmanifest.xml" Lines="$(_ManifestText)" Overwrite="true" />
+    <!-- One <Application> per native app in fdc3-appd.json goes where the manifest has the @NATIVE_APPS@ marker. -->
+    <Exec Command="powershell -NoProfile -ExecutionPolicy Bypass -File &quot;$(MSBuildProjectDirectory)\native-apps.ps1&quot; -Directory &quot;$(MSBuildProjectDirectory)\fdc3-appd.json&quot; -Mode Patch -Manifest &quot;$(_StagingDir)appxmanifest.xml&quot;" />
 
     <!-- 5. Copy asset images -->
     <ItemGroup>

@@ -118,7 +118,7 @@ const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
 dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 # Output: artifacts/msix/
 
-# The package also contains the sample native FDC3 side app (src/Bermuda.NativeApp) as a second application.
+# The package also contains the native FDC3 side apps listed in src/Bermuda/fdc3-appd.json (type "native").
 ```
 
 ### Releases and auto-update

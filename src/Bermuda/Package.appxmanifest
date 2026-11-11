@@ -60,20 +60,7 @@
       </Extensions>
     </Application>
 
-    <!-- The sample native FDC3 side app (src/Bermuda.NativeApp): shipped in this package so it installs and
-         updates with Bermuda. A background app with no Start menu entry and no startup task of its own: Bermuda
-         starts it (App.StartNativeApp) and closes it again on exit. -->
-    <Application Id="NativeApp"
-                 Executable="Bermuda.NativeApp.exe"
-                 EntryPoint="Windows.FullTrustApplication">
-      <uap:VisualElements
-        DisplayName="Bermuda Native Incidents"
-        Description="Sample native FDC3 app: joins Bermuda's desktop agent over a named pipe."
-        BackgroundColor="transparent"
-        Square150x150Logo="Assets\Square150x150Logo.png"
-        Square44x44Logo="Assets\Square44x44Logo.png"
-        AppListEntry="none" />
-    </Application>
+    <!-- @NATIVE_APPS@ -->
   </Applications>
 
   <Capabilities>

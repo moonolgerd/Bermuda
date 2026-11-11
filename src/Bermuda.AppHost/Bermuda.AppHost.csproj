@@ -11,7 +11,6 @@
   <ItemGroup>
     <ProjectReference Include="..\Bermuda\Bermuda.csproj" IsAspireProjectResource="true" />
     <ProjectReference Include="..\Bermuda.Api\Bermuda.Api.csproj" IsAspireProjectResource="true" />
-    <ProjectReference Include="..\Bermuda.NativeApp\Bermuda.NativeApp.csproj" IsAspireProjectResource="true" />
   </ItemGroup>
 
   <ItemGroup>

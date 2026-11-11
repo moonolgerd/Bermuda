@@ -30,7 +30,12 @@ public sealed record AppDefinition
         new Dictionary<string, IntentDefinition>();
 }
 
-public sealed record AppDetails(string? Url);
+/// <summary>
+/// AppD <c>details</c>: <c>url</c> for web apps; <c>path</c> and <c>arguments</c> for native apps (the path is
+/// relative to the host's folder). <c>project</c> is a Bermuda extension for native apps: the .csproj that builds
+/// them, relative to the directory file, so builds can find and package side apps from this file alone.
+/// </summary>
+public sealed record AppDetails(string? Url = null, string? Path = null, string? Arguments = null, string? Project = null);
 
 public sealed record AppInterop(AppInteropIntents? Intents);
 
