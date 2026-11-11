@@ -51,3 +51,31 @@ public enum TaskbarProgressState
     Error,
     Paused,
 }
+
+/// <summary>
+/// Outcome of <c>checkForUpdate</c>. <c>Unsupported</c> means the app isn't running
+/// from an MSIX installed through an .appinstaller (dev runs, plain MSIX installs).
+/// Mirrors <c>Windows.ApplicationModel.PackageUpdateAvailability</c> otherwise.
+/// </summary>
+[IpcType]
+public enum UpdateStatus
+{
+    Unsupported,
+    None,
+    Available,
+    Required,
+    Unknown,
+    Error,
+}
+
+/// <summary>Response to <c>checkForUpdate</c>.</summary>
+public sealed record UpdateCheckResult(UpdateStatus Status, string CurrentVersion, string Message);
+
+[IpCommand("checkForUpdate", "undefined", nameof(UpdateCheckResult), "Asks Windows whether a newer version is published at the .appinstaller URL.")]
+internal sealed class CheckForUpdateCommand;
+
+/// <summary>Response to <c>applyUpdate</c>.</summary>
+public sealed record UpdateApplyResult(bool Started, string Message);
+
+[IpCommand("applyUpdate", "undefined", nameof(UpdateApplyResult), "Installs the newer version from the .appinstaller; the app restarts when it finishes.")]
+internal sealed class ApplyUpdateCommand;

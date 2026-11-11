@@ -1,6 +1,7 @@
 import { Suspense, useEffect } from 'react'
 import logo from './assets/bermuda.svg'
 import { IncidentsDashboard } from './components/IncidentsDashboard'
+import { UpdateBanner } from './components/UpdateBanner'
 import { bermudaHost } from './bridge'
 import './App.css'
 
@@ -20,6 +21,7 @@ function App() {
         <img className="heading-logo" src={logo} alt="" />
         Bermuda
       </h1>
+      <UpdateBanner />
       <Suspense fallback={<p>Loading incidents…</p>}>
         <IncidentsDashboard />
       </Suspense>

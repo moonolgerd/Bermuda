@@ -1,6 +1,14 @@
-import type { HostResponse, IpcRequest, TaskbarProgressState, WindowStateSnapshot } from '../ipc/__generated__/ipc'
+import type {
+  HostResponse,
+  IpcRequest,
+  TaskbarProgressState,
+  UpdateApplyResult,
+  UpdateCheckResult,
+  UpdateStatus,
+  WindowStateSnapshot,
+} from '../ipc/__generated__/ipc'
 
-export type { TaskbarProgressState }
+export type { TaskbarProgressState, UpdateApplyResult, UpdateCheckResult, UpdateStatus }
 
 const pending = new Map<string, (result: unknown) => void>()
 
@@ -49,7 +57,19 @@ const windowApi = {
 
 export type WindowApi = typeof windowApi
 
+// App updates go through the invoke() channel (the work is async on the host side).
+// Only an MSIX installed from the .appinstaller can update; anywhere else the status is 'unsupported'.
+const updatesApi = {
+  /** Ask Windows whether a newer version is published at the .appinstaller URL. */
+  check: (): Promise<UpdateCheckResult> => invoke<UpdateCheckResult>('checkForUpdate'),
+  /** Install the newer version. Windows closes the app to swap the package; relaunch it afterwards. */
+  apply: (): Promise<UpdateApplyResult> => invoke<UpdateApplyResult>('applyUpdate'),
+} as const
+
+export type UpdatesApi = typeof updatesApi
+
 export const bermudaHost = {
   invoke,
   window: windowApi,
+  updates: updatesApi,
 }

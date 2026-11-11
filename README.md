@@ -94,6 +94,19 @@ dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 # Output: artifacts/msix/
 ```
 
+### Releases and auto-update
+
+Pushing a `v1.2.3.4` tag runs the `publish` job, which attaches three files to the GitHub Release: the `.msix`, `Bermuda.appinstaller` and `Bermuda.cer` (the public half of the signing certificate). The `.appinstaller` is always served from `releases/latest/download/`, so one link installs and updates the app.
+
+If the certificate is self-signed, each machine must trust it once before installing (admin PowerShell):
+
+```powershell
+Import-Certificate -FilePath .\Bermuda.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+```
+
+The host checks for a newer version on startup (`checkForUpdate` command, `UpdateBanner` in the UI) and installs it on request (`applyUpdate`). Both report `unsupported` unless the app was installed from the `.appinstaller`.
+
+
 ## IPC — Web ↔ Host
 
 The frontend calls the WPF host via `bermudaHost.invoke(command, payload)` (fire-and-forget or request/response with UUID correlation). The host pushes events back with `CoreWebView2.PostWebMessageAsJson`. The request/response envelopes are `[IpcType]`-marked records (`IpcRequest`, `HostResponse` in `Bermuda.IpcContract`) generated into `ipc.d.ts` like everything else in this section — `MainWindow` serializes them with `JsonNamingPolicy.CamelCase` (`HostToWebJson`) specifically so the wire format matches those generated (camelCase) shapes.
