@@ -282,6 +282,9 @@ message ApiEvent {
 
 message SubscribeRequest {
   string app_id = 1;
+  // The instance id the host passed in the FDC3_INSTANCE_ID environment variable when it launched this app
+  // (fdc3.open / an intent raised at it while it was down). Leave unset for an app that was started on its own.
+  optional string instance_id = 2;
 }
 
 // First message of every Subscribe stream.

@@ -13,8 +13,8 @@
       "interop": {
         "intents": {
           "listensFor": {
-            "ViewIncident": {
-              "displayName": "View Incident (native)",
+            "AcknowledgeIncident": {
+              "displayName": "Acknowledge Incident (native)",
               "contexts": ["bermuda.incident"],
               "resultType": "bermuda.native.ack"
             }

@@ -60,9 +60,13 @@ internal sealed partial class Fdc3AgentService(DesktopAgent agent, Fdc3Connectio
         if (string.IsNullOrWhiteSpace(request.AppId)) throw new Fdc3Exception(Fdc3Errors.InvalidArguments);
         if (agent.Directory.Find(request.AppId) is not { } app) throw new Fdc3Exception(Fdc3Errors.AppNotFound);
 
+        // The pipe is for native apps. Web apps get their app id from the host (the window that hosts them), so a
+        // process on the pipe cannot claim to be one: it could receive that app's intents or speak as it.
+        if (app.Type != "native") throw new Fdc3Exception(Fdc3Errors.AccessDenied);
+
         var sink = new ChannelSink();
         // The directory's casing wins, so instances of one app always share an AppId.
-        using var connection = agent.Connect(app.AppId, sink);
+        using var connection = agent.Connect(app.AppId, sink, request.HasInstanceId ? request.InstanceId : null);
         registry.Add(connection, context.GetHttpContext().Connection.Id);
         try
         {

@@ -14,9 +14,19 @@ public sealed class WindowAppLauncher(IConfiguration configuration) : IFdc3AppLa
 {
     public DesktopAgent? Agent { get; set; }
 
+    /// <summary>Starts native apps; null while the gRPC pipe is off, because they could not connect anyway.</summary>
+    public NativeAppHost? NativeApps { get; set; }
+
     public void Launch(AppDefinition app, string instanceId)
     {
         if (Agent is null) throw new InvalidOperationException("Launcher not attached to a desktop agent.");
+        if (app.Type == "native" && NativeApps is not null)
+        {
+            // The app connects over the pipe with this instance id (FDC3_INSTANCE_ID), which completes the open.
+            NativeApps.Start(app, instanceId);
+            return;
+        }
+
         if (app.Type != "web" || app.Details?.Url is not { Length: > 0 } url)
             throw new InvalidOperationException($"App '{app.AppId}' has no web URL to launch.");
 

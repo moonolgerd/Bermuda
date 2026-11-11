@@ -13,10 +13,11 @@ public sealed class PipeIntegrationTests : IAsyncLifetime
     private const string AppD = """
         {
           "applications": [
-            { "appId": "native-app", "title": "Native" },
+            { "appId": "native-app", "title": "Native", "type": "native" },
             {
               "appId": "incidents",
               "title": "Incidents",
+              "type": "native",
               "interop": { "intents": { "listensFor": {
                 "ViewIncident": { "contexts": ["bermuda.incident"], "resultType": "fdc3.contact" }
               } } }
@@ -34,10 +35,24 @@ public sealed class PipeIntegrationTests : IAsyncLifetime
 
     private const string Incident = """{ "type": "bermuda.incident", "id": { "incidentId": "7" } }""";
 
-    private readonly DesktopAgent _agent = new(AppDirectory.Parse(AppD), launchTimeout: TimeSpan.FromSeconds(2));
+    private readonly PipeLauncher _launcher = new();
+    private readonly DesktopAgent _agent;
     private readonly string _pipe = "bermuda-fdc3-test-" + Guid.NewGuid().ToString("N");
     private readonly List<IAsyncDisposable> _clients = [];
     private Fdc3GrpcHost _host = null!;
+
+    public PipeIntegrationTests()
+    {
+        _agent = new DesktopAgent(AppDirectory.Parse(AppD), _launcher, launchTimeout: TimeSpan.FromSeconds(2));
+    }
+
+    /// <summary>Stands in for Bermuda's NativeAppHost: "starts" the native app, which connects with the instance id it was given.</summary>
+    private sealed class PipeLauncher : IFdc3AppLauncher
+    {
+        public Func<AppDefinition, string, Task>? Start { get; set; }
+
+        public void Launch(AppDefinition app, string instanceId) => _ = Start?.Invoke(app, instanceId);
+    }
 
     public async Task InitializeAsync() => _host = await Fdc3GrpcHost.StartAsync(_agent, _pipe);
 
@@ -47,9 +62,9 @@ public sealed class PipeIntegrationTests : IAsyncLifetime
         await _host.DisposeAsync();
     }
 
-    private async Task<Fdc3PipeClient> ConnectAsync(string appId)
+    private async Task<Fdc3PipeClient> ConnectAsync(string appId, string? instanceId = null)
     {
-        var client = await Fdc3PipeClient.ConnectAsync(_pipe, appId);
+        var client = await Fdc3PipeClient.ConnectAsync(_pipe, appId, instanceId: instanceId);
         _clients.Add(client);
         return client;
     }
@@ -63,6 +78,28 @@ public sealed class PipeIntegrationTests : IAsyncLifetime
 
         Assert.Equal(StatusCode.NotFound, ex.StatusCode);
         Assert.Equal(Fdc3Errors.AppNotFound, ex.Status.Detail);
+    }
+
+    [Fact]
+    public async Task Rejects_a_web_app_because_only_native_apps_use_the_pipe()
+    {
+        var ex = await Assert.ThrowsAsync<RpcException>(() => Fdc3PipeClient.ConnectAsync(_pipe, "web-app"));
+
+        Assert.Equal(StatusCode.PermissionDenied, ex.StatusCode);
+        Assert.Equal(Fdc3Errors.AccessDenied, ex.Status.Detail);
+    }
+
+    [Fact]
+    public async Task Open_launches_a_native_app_that_connects_with_the_instance_id_it_was_given()
+    {
+        _launcher.Start = async (app, instanceId) => await ConnectAsync(app.AppId, instanceId);
+        using var web = _agent.Connect("web-app", new RecordingSink());
+
+        var opened = await web.OpenAsync(new Fdc3OpenRequest(new Fdc3AppIdentifier("native-app", null), null));
+
+        Assert.Equal("native-app", opened.AppId);
+        Assert.NotNull(opened.InstanceId);
+        Assert.Contains(web.FindInstances(new Fdc3AppIdentifier("native-app", null)), i => i.InstanceId == opened.InstanceId);
     }
 
     [Fact]

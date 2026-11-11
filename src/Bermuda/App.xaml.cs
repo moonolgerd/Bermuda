@@ -27,7 +27,12 @@ public partial class App : Application
         launcher.Agent = fdc3;
 
         StartGrpcHost(config, fdc3);
-        if (_grpcHost is not null) StartNativeApps(config, directory);
+        if (_grpcHost is not null)
+        {
+            _nativeApps = new NativeAppHost(_grpcHost.PipeName);
+            launcher.NativeApps = _nativeApps;
+            StartNativeApps(config, directory);
+        }
 
         var window = new MainWindow(config, fdc3, MainAppId);
         window.Show();
@@ -53,29 +58,21 @@ public partial class App : Application
     }
 
     private Fdc3GrpcHost? _grpcHost;
-    private readonly List<System.Diagnostics.Process> _nativeApps = [];
+    private NativeAppHost? _nativeApps;
 
     /// <summary>
-    /// Starts every native side app in the App Directory (type "native" with a details.path, relative to this exe),
-    /// so they run whenever Bermuda does, however Bermuda was started. They ship in the same package. Each allows
-    /// one copy per user, so starting one that is already running is harmless. NATIVE_APP_AUTOSTART=false turns
-    /// this off.
+    /// Starts every native side app in the App Directory so they run whenever Bermuda does, however Bermuda was
+    /// started. They ship in the same package. NATIVE_APP_AUTOSTART=false turns this off. An app that is down
+    /// later is started again on demand, when fdc3.open or an intent needs it (see <see cref="WindowAppLauncher"/>).
     /// </summary>
     private void StartNativeApps(IConfiguration config, AppDirectory directory)
     {
         if (bool.TryParse(config["NATIVE_APP_AUTOSTART"], out var enabled) && !enabled) return;
-        foreach (var app in directory.Apps.Where(a => a.Type == "native" && a.Details?.Path is not null))
+        foreach (var app in directory.Apps.Where(a => NativeAppHost.ResolvePath(a) is not null))
         {
-            var exe = Path.GetFullPath(Path.Combine(AppContext.BaseDirectory, app.Details!.Path!));
-            if (!File.Exists(exe)) continue;
             try
             {
-                var process = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(exe, app.Details.Arguments ?? "")
-                {
-                    UseShellExecute = false,
-                    WorkingDirectory = Path.GetDirectoryName(exe)!,
-                });
-                if (process is not null) _nativeApps.Add(process);
+                _nativeApps!.Start(app);
             }
             catch (Exception ex)
             {
@@ -86,20 +83,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
-        // Close the side app we started. If it was already running (so our copy exited at once because it
-        // allows one per user), or someone else started it, that handle has exited and nothing is killed.
-        foreach (var process in _nativeApps)
-        {
-            try
-            {
-                if (!process.HasExited) process.Kill();
-                process.Dispose();
-            }
-            catch (Exception ex)
-            {
-                System.Diagnostics.Debug.WriteLine($"Native FDC3 app did not stop: {ex.Message}");
-            }
-        }
+        _nativeApps?.Dispose();
 
         if (_grpcHost is { } grpcHost)
         {

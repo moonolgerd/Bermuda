@@ -6,7 +6,7 @@ import { test, expect } from './fixtures'
 // Exercises the native side app (src/Bermuda.NativeApp), which Aspire starts
 // next to the host. It connects to the host's gRPC named pipe as
 // "native-incidents", joins fdc3.channel.1 and answers every
-// bermuda.incident context / ViewIncident intent with a bermuda.native.ack
+// bermuda.incident context / AcknowledgeIncident intent with a bermuda.native.ack
 // that carries the incident it saw. So a round trip here proves both
 // directions: web -> native (the incident arrives) and native -> web (the ack).
 
@@ -78,19 +78,30 @@ test.describe('FDC3 native side app (gRPC named pipe)', () => {
       async ([ctx, appId]) => {
         const agent = window.fdc3 as DesktopAgent
         const [instance] = await agent.findInstances({ appId })
-        const resolution = await agent.raiseIntent('ViewIncident', ctx as Context, instance)
+        const resolution = await agent.raiseIntent('AcknowledgeIncident', ctx as Context, instance)
         return { source: resolution.source, intent: resolution.intent, result: await resolution.getResult() }
       },
       [incident('native-2'), NATIVE] as const,
     )
 
     expect(result.source.appId).toBe(NATIVE)
-    expect(result.intent).toBe('ViewIncident')
+    expect(result.intent).toBe('AcknowledgeIncident')
     expect(result.result).toMatchObject({ type: 'bermuda.native.ack', of: { id: { incidentId: 'native-2' } } })
   })
 
-  test('findIntent lists the native app next to the web app', async ({ page }) => {
-    const apps = await page.evaluate(async () => (await (window.fdc3 as DesktopAgent).findIntent('ViewIncident')).apps.map((a) => a.appId))
-    expect(apps).toEqual(expect.arrayContaining([NATIVE, 'bermuda-incidents']))
+  test('findIntent lists the native app for its own intent, and the dashboard for ViewIncident', async ({ page }) => {
+    // A running app is listed once per instance and once more as launchable, so compare the distinct app ids.
+    const appsFor = (intent: string) =>
+      page.evaluate(async (name) => [...new Set((await (window.fdc3 as DesktopAgent).findIntent(name)).apps.map((a) => a.appId))], intent)
+    expect(await appsFor('AcknowledgeIncident')).toEqual([NATIVE])
+    expect(await appsFor('ViewIncident')).toEqual(['bermuda-incidents'])
+  })
+
+  test('an untargeted ViewIncident still resolves to the dashboard while the native app is connected', async ({ page }) => {
+    const source = await page.evaluate(async (ctx) => {
+      const resolution = await (window.fdc3 as DesktopAgent).raiseIntent('ViewIncident', ctx as Context)
+      return resolution.source.appId
+    }, incident('native-3'))
+    expect(source).toBe('bermuda-incidents')
   })
 })

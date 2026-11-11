@@ -9,15 +9,18 @@ using Grpc.Core;
 //   * joins user channel NATIVE_CHANNEL (default fdc3.channel.1)
 //   * listens for `bermuda.incident` contexts there and answers each by
 //     broadcasting `bermuda.native.ack` carrying the incident it saw
-//   * handles the `ViewIncident` intent and returns the same ack as its result
+//   * handles the `AcknowledgeIncident` intent and returns the same ack as its result
+//     (not `ViewIncident`: the dashboard handles that, and an untargeted raise must keep resolving to it)
 //
-// Config (environment): FDC3_GRPC_PIPE (default: Bermuda's per-user pipe), NATIVE_CHANNEL.
+// Config (environment): FDC3_GRPC_PIPE (default: Bermuda's per-user pipe), NATIVE_CHANNEL, and FDC3_INSTANCE_ID,
+// which Bermuda sets when it launches the app for fdc3.open or an intent.
 // It reconnects whenever the host goes away, so start order doesn't matter.
 
 const string AppId = "native-incidents";
 const string AckType = "bermuda.native.ack";
 
-var pipe = Environment.GetEnvironmentVariable("FDC3_GRPC_PIPE");
+var pipe = Environment.GetEnvironmentVariable("FDC3_GRPC_PIPE") is { Length: > 0 } p ? p : null;
+var launchInstance = Environment.GetEnvironmentVariable("FDC3_INSTANCE_ID") is { Length: > 0 } i ? i : null;
 var channel = Environment.GetEnvironmentVariable("NATIVE_CHANNEL") is { Length: > 0 } c ? c : "fdc3.channel.1";
 
 // One copy per user: Windows starts it at sign-in and Bermuda starts it too; a second copy just exits.
@@ -31,14 +34,17 @@ while (!shutdown.IsCancellationRequested)
 {
     try
     {
-        await using var client = await Fdc3PipeClient.ConnectAsync(pipe, AppId, shutdown.Token);
+        // The launch instance id is for the first connection only; a reconnect is a new instance.
+        await using var client = await Fdc3PipeClient.ConnectAsync(pipe, AppId, shutdown.Token, launchInstance);
+        launchInstance = null;
         Console.WriteLine($"[{AppId}] connected as {client.InstanceId}");
         await RunAsync(client, shutdown.Token);
     }
     catch (OperationCanceledException) when (shutdown.IsCancellationRequested)
     {
     }
-    catch (Exception ex) when (ex is RpcException or IOException or TimeoutException or InvalidOperationException)
+    // Any failure ends this connection, not the process: Bermuda only starts this exe again on demand.
+    catch (Exception ex)
     {
         Console.WriteLine($"[{AppId}] {ex.GetType().Name}: {ex.Message}");
     }
@@ -54,7 +60,7 @@ async Task RunAsync(Fdc3PipeClient client, CancellationToken cancellationToken)
         new AddContextListenerRequest { ListenerId = "incidents", ContextType = "bermuda.incident" },
         client.Headers, cancellationToken: cancellationToken);
     await client.Rpc.AddIntentListenerAsync(
-        new AddIntentListenerRequest { ListenerId = "view", Intent = "ViewIncident" },
+        new AddIntentListenerRequest { ListenerId = "ack", Intent = "AcknowledgeIncident" },
         client.Headers, cancellationToken: cancellationToken);
 
     while (!cancellationToken.IsCancellationRequested)
@@ -78,5 +84,11 @@ async Task RunAsync(Fdc3PipeClient client, CancellationToken cancellationToken)
     }
 }
 
-static string Ack(string contextJson) =>
-    JsonSerializer.Serialize(new { type = AckType, of = JsonSerializer.Deserialize<JsonElement>(contextJson) });
+// A payload that is not JSON is acknowledged with of: null instead of tearing the app down.
+static string Ack(string contextJson)
+{
+    JsonElement? of = null;
+    try { of = JsonSerializer.Deserialize<JsonElement>(contextJson); }
+    catch (JsonException) { }
+    return JsonSerializer.Serialize(new { type = AckType, of });
+}

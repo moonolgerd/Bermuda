@@ -56,13 +56,13 @@ public sealed class Fdc3PipeClient : IAsyncDisposable
     public Metadata Headers { get; }
 
     /// <summary>Throws <see cref="RpcException"/> (detail = FDC3 error string) if the agent rejects the app id.</summary>
-    public static async Task<Fdc3PipeClient> ConnectAsync(string? pipeName, string appId, CancellationToken cancellationToken = default)
+    public static async Task<Fdc3PipeClient> ConnectAsync(string? pipeName, string appId, CancellationToken cancellationToken = default, string? instanceId = null)
     {
         var handler = new SocketsHttpHandler
         {
             ConnectCallback = async (_, token) =>
             {
-                var pipe = new NamedPipeClientStream(".", pipeName ?? Fdc3Pipe.DefaultName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                var pipe = new NamedPipeClientStream(".", string.IsNullOrWhiteSpace(pipeName) ? Fdc3Pipe.DefaultName : pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 try
                 {
                     await pipe.ConnectAsync(token);
@@ -79,7 +79,9 @@ public sealed class Fdc3PipeClient : IAsyncDisposable
         try
         {
             var rpc = new Fdc3Agent.Fdc3AgentClient(channel);
-            var stream = rpc.Subscribe(new SubscribeRequest { AppId = appId }, cancellationToken: cancellationToken);
+            var request = new SubscribeRequest { AppId = appId };
+            if (!string.IsNullOrWhiteSpace(instanceId)) request.InstanceId = instanceId;
+            var stream = rpc.Subscribe(request, cancellationToken: cancellationToken);
             if (!await stream.ResponseStream.MoveNext(cancellationToken) || stream.ResponseStream.Current.Connected is not { } connected)
                 throw new InvalidOperationException("The agent closed the stream before connecting.");
             return new Fdc3PipeClient(channel, rpc, connected.InstanceId, connected.AppId, stream);
