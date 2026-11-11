@@ -27,7 +27,7 @@
     <PackageVersion Include="xunit" Version="2.9.3" />
     <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
 
-    <!-- src/Bermuda.Fdc3.Grpc, src/Bermuda.Fdc3.Grpc.Tests -->
+    <!-- src/Bermuda.Fdc3.Grpc -->
     <PackageVersion Include="Grpc.AspNetCore" Version="2.83.0" />
     <PackageVersion Include="Grpc.Net.Client" Version="2.83.0" />
 

@@ -5,7 +5,7 @@ using Bermuda.Fdc3.Grpc.Proto;
 using Grpc.Core;
 using Grpc.Net.Client;
 
-namespace Bermuda.Fdc3.Grpc.Tests;
+namespace Bermuda.Fdc3.Grpc;
 
 /// <summary>
 /// A minimal native FDC3 app: connects to Bermuda's named pipe, subscribes as
@@ -39,13 +39,13 @@ public sealed class Fdc3PipeClient : IAsyncDisposable
     public Metadata Headers { get; }
 
     /// <summary>Throws <see cref="RpcException"/> (detail = FDC3 error string) if the agent rejects the app id.</summary>
-    public static async Task<Fdc3PipeClient> ConnectAsync(string pipeName, string appId, CancellationToken cancellationToken = default)
+    public static async Task<Fdc3PipeClient> ConnectAsync(string? pipeName, string appId, CancellationToken cancellationToken = default)
     {
         var handler = new SocketsHttpHandler
         {
             ConnectCallback = async (_, token) =>
             {
-                var pipe = new NamedPipeClientStream(".", pipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                var pipe = new NamedPipeClientStream(".", pipeName ?? Fdc3GrpcHost.DefaultPipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 try
                 {
                     await pipe.ConnectAsync(token);
@@ -93,14 +93,15 @@ public sealed class Fdc3PipeClient : IAsyncDisposable
     }
 
     /// <summary>The next event the agent pushed; throws <see cref="TimeoutException"/> if none arrives.</summary>
-    public async Task<AgentEvent> NextEventAsync(TimeSpan? timeout = null)
+    public async Task<AgentEvent> NextEventAsync(TimeSpan? timeout = null, CancellationToken cancellationToken = default)
     {
-        using var cts = new CancellationTokenSource(timeout ?? TimeSpan.FromSeconds(5));
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        cts.CancelAfter(timeout ?? TimeSpan.FromSeconds(5));
         try
         {
             return await _events.Reader.ReadAsync(cts.Token);
         }
-        catch (OperationCanceledException)
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
         {
             throw new TimeoutException("No FDC3 event arrived.");
         }

@@ -1,0 +1,19 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A sample native FDC3 side app. It connects to Bermuda's named pipe as
+    "native-incidents" (see src/Bermuda/fdc3-appd.json) and acknowledges
+    incidents it receives. Started by the Aspire AppHost next to the host.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3.Grpc\Bermuda.Fdc3.Grpc.csproj" />
+  </ItemGroup>
+
+</Project>
