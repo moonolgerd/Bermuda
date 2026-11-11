@@ -1,9 +1,8 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
   <!--
-    Build-time tool: checks the C# FDC3 contract (Bermuda.IpcContract) against
-    ../Bermuda.Fdc3.Grpc/Protos/fdc3.proto (the source of truth, via protoc's descriptor set)
-    and writes the gRPC glue into ../Bermuda.Fdc3.Grpc/Generated. Run by Bermuda.Fdc3.Grpc's build.
+    Build-time tool run by Bermuda.Fdc3.Proto: turns Protos/fdc3.proto (via protoc's descriptor set) into the
+    C# FDC3 contract (Bermuda.IpcContract) and the gRPC glue (Bermuda.Fdc3.Grpc). Depends on nothing it generates.
   -->
   <PropertyGroup>
     <OutputType>Exe</OutputType>
@@ -14,10 +13,6 @@
 
   <ItemGroup>
     <PackageReference Include="Google.Protobuf" />
-  </ItemGroup>
-
-  <ItemGroup>
-    <ProjectReference Include="..\Bermuda.IpcContract\Bermuda.IpcContract.csproj" />
   </ItemGroup>
 
 </Project>

@@ -35,7 +35,7 @@ public partial class App : Application
     /// <summary>
     /// Lets native apps join the agent over gRPC on a named pipe. Config:
     /// FDC3_GRPC_ENABLED (default true) and FDC3_GRPC_PIPE (default per-user,
-    /// see <see cref="Fdc3GrpcHost.DefaultPipeName"/>). A failure to listen
+    /// see <see cref="Fdc3Pipe.DefaultName"/>). A failure to listen
     /// (e.g. the pipe name is taken) must not stop the app.
     /// </summary>
     private void StartGrpcHost(IConfiguration config, DesktopAgent agent)

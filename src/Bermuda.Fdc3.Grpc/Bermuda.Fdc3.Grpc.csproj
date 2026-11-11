@@ -1,5 +1,11 @@
 <Project Sdk="Microsoft.NET.Sdk">
 
+  <!--
+    Serves the in-process DesktopAgent to native apps over gRPC on a named pipe.
+    The messages and the Fdc3Agent service base come from Bermuda.Fdc3.Proto (fdc3.proto is the source of truth);
+    Generated/Fdc3Generated.g.cs (written by that project's build) maps them to the Fdc3Connection API.
+    Hand-written here: Mapping.cs (JSON helper), Fdc3AgentService.cs (Subscribe, caller lookup), the host and the client.
+  -->
   <PropertyGroup>
     <TargetFramework>net10.0</TargetFramework>
     <Nullable>enable</Nullable>
@@ -15,29 +21,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Both: native .NET apps (and the tests) can reuse the generated client. -->
-    <!-- protoc also writes a descriptor set, which the generator reads. -->
-    <Protobuf Include="Protos\fdc3.proto" GrpcServices="Both" AdditionalProtocArguments="--descriptor_set_out=obj/fdc3.pb" />
-  </ItemGroup>
-
-  <!--
-    Protos/fdc3.proto is the source of truth: Grpc.Tools builds the messages and service base from it.
-    After protoc runs, Bermuda.Fdc3.Grpc.Generator reads the descriptor set, FAILS the build if the C# contract
-    (Bermuda.IpcContract/Fdc3Contract.cs) disagrees with the proto, and writes Generated/Fdc3Generated.g.cs
-    (proto <-> contract mapping and the service overrides; checked in, refreshed here). Hand-written:
-    Mapping.cs (JSON helper), Fdc3AgentService.cs (Subscribe, caller lookup).
-  -->
-  <ItemGroup>
-    <ProjectReference Include="..\Bermuda.Fdc3.Grpc.Generator\Bermuda.Fdc3.Grpc.Generator.csproj" ReferenceOutputAssembly="false" />
-  </ItemGroup>
-
-  <Target Name="GenerateFdc3Grpc" AfterTargets="Protobuf_Compile" BeforeTargets="CoreCompile"
-          Inputs="Protos\fdc3.proto;..\Bermuda.IpcContract\Fdc3Contract.cs;..\Bermuda.Fdc3.Grpc.Generator\Program.cs"
-          Outputs="Generated\Fdc3Generated.g.cs">
-    <Exec Command="dotnet &quot;$(MSBuildProjectDirectory)\..\Bermuda.Fdc3.Grpc.Generator\bin\$(Configuration)\net10.0\Bermuda.Fdc3.Grpc.Generator.dll&quot; &quot;$(MSBuildProjectDirectory)\obj\fdc3.pb&quot; &quot;$(MSBuildProjectDirectory)\Generated&quot;" />
-  </Target>
-
-  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3.Proto\Bermuda.Fdc3.Proto.csproj" />
     <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />
   </ItemGroup>
 

@@ -25,17 +25,10 @@ public sealed class Fdc3GrpcHost : IAsyncDisposable
 
     public string PipeName { get; }
 
-    /// <summary>
-    /// <c>bermuda-fdc3-&lt;user name&gt;</c>. Pipe names are machine-wide, so the
-    /// user name keeps two signed-in users from sharing (or fighting over) one.
-    /// </summary>
-    public static string DefaultPipeName { get; } =
-        "bermuda-fdc3-" + Regex.Replace(Environment.UserName, @"[^A-Za-z0-9_.-]", "_");
-
-    /// <param name="pipeName">The pipe name (without <c>\\.\pipe\</c>); null = <see cref="DefaultPipeName"/>.</param>
+    /// <param name="pipeName">The pipe name (without <c>\\.\pipe\</c>); null = <see cref="Fdc3Pipe.DefaultName"/>.</param>
     public static async Task<Fdc3GrpcHost> StartAsync(DesktopAgent agent, string? pipeName = null, CancellationToken cancellationToken = default)
     {
-        pipeName = string.IsNullOrWhiteSpace(pipeName) ? DefaultPipeName : pipeName;
+        pipeName = string.IsNullOrWhiteSpace(pipeName) ? Fdc3Pipe.DefaultName : pipeName;
 
         var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
         {

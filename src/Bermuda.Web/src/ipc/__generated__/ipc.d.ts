@@ -22,7 +22,7 @@ export interface Fdc3AddIntentListenerRequest {
 }
 
 export interface Fdc3ApiEvent {
-    details: unknown | null;
+    details?: unknown | null;
     eventType: string;
     listenerId: string;
     type: string;

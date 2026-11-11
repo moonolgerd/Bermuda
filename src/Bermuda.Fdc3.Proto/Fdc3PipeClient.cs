@@ -7,6 +7,23 @@ using Grpc.Net.Client;
 
 namespace Bermuda.Fdc3.Grpc;
 
+/// <summary>Request header carrying the instance id from the <c>Connected</c> event.</summary>
+public static class Fdc3Headers
+{
+    public const string Instance = "x-fdc3-instance";
+}
+
+/// <summary>Where Bermuda's FDC3 pipe lives.</summary>
+public static class Fdc3Pipe
+{
+    /// <summary>
+    /// <c>bermuda-fdc3-&lt;user name&gt;</c>. Pipe names are machine-wide, so the user name keeps two
+    /// signed-in users from sharing (or fighting over) one. Host and clients compute it the same way.
+    /// </summary>
+    public static string DefaultName { get; } =
+        "bermuda-fdc3-" + System.Text.RegularExpressions.Regex.Replace(Environment.UserName, @"[^A-Za-z0-9_.-]", "_");
+}
+
 /// <summary>
 /// A minimal native FDC3 app: connects to Bermuda's named pipe, subscribes as
 /// <c>appId</c> and exposes the generated client plus the agent's pushed
@@ -45,7 +62,7 @@ public sealed class Fdc3PipeClient : IAsyncDisposable
         {
             ConnectCallback = async (_, token) =>
             {
-                var pipe = new NamedPipeClientStream(".", pipeName ?? Fdc3GrpcHost.DefaultPipeName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
+                var pipe = new NamedPipeClientStream(".", pipeName ?? Fdc3Pipe.DefaultName, PipeDirection.InOut, PipeOptions.Asynchronous | PipeOptions.CurrentUserOnly);
                 try
                 {
                     await pipe.ConnectAsync(token);

@@ -6,12 +6,6 @@ using Grpc.Core;
 
 namespace Bermuda.Fdc3.Grpc;
 
-/// <summary>Request header carrying the instance id from the <c>Connected</c> event.</summary>
-public static class Fdc3Headers
-{
-    public const string Instance = "x-fdc3-instance";
-}
-
 /// <summary>Instances currently subscribed through gRPC, and the pipe connection each belongs to.</summary>
 internal sealed class Fdc3ConnectionRegistry
 {

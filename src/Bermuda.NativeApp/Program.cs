@@ -56,15 +56,15 @@ async Task RunAsync(Fdc3PipeClient client, CancellationToken cancellationToken)
     while (!cancellationToken.IsCancellationRequested)
     {
         var e = await client.NextEventAsync(Timeout.InfiniteTimeSpan, cancellationToken);
-        switch (e.EventCase)
+        switch (e.KindCase)
         {
-            case AgentEvent.EventOneofCase.Context:
+            case AgentEvent.KindOneofCase.Context:
                 Console.WriteLine($"[{AppId}] context from {e.Context.Source?.AppId}: {e.Context.ContextJson}");
                 await client.Rpc.BroadcastAsync(new BroadcastRequest { ContextJson = Ack(e.Context.ContextJson) },
                     client.Headers, cancellationToken: cancellationToken);
                 break;
 
-            case AgentEvent.EventOneofCase.Intent:
+            case AgentEvent.KindOneofCase.Intent:
                 Console.WriteLine($"[{AppId}] {e.Intent.Intent} from {e.Intent.Source?.AppId}: {e.Intent.ContextJson}");
                 await client.Rpc.SendIntentResultAsync(
                     new SendIntentResultRequest { ResultId = e.Intent.ResultId, ContextJson = Ack(e.Intent.ContextJson) },
