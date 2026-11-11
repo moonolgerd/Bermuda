@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Bermuda.Fdc3.Grpc</AssemblyName>
+    <RootNamespace>Bermuda.Fdc3.Grpc</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Grpc.AspNetCore" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Both: native .NET apps (and the tests) can reuse the generated client. -->
+    <Protobuf Include="Protos\fdc3.proto" GrpcServices="Both" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />
+  </ItemGroup>
+
+</Project>

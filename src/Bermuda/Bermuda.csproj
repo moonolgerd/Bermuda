@@ -109,6 +109,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />
+    <ProjectReference Include="..\Bermuda.Fdc3.Grpc\Bermuda.Fdc3.Grpc.csproj" />
   </ItemGroup>
 
   <!--

@@ -138,6 +138,18 @@ Rejections are `Error`s whose `message` is the standard FDC3 error string; over 
 - Selecting an incident broadcasts `{ type: "bermuda.incident", id: { incidentId }, name: <location> }`. Selection that *arrives* over FDC3 (a broadcast on the joined channel, or the `ViewIncident` intent) selects the incident but does not re-broadcast, so linked windows cannot echo.
 - Incidents unknown to the receiving window are ignored.
 
+## 7a. Native apps over gRPC (named pipe)
+
+Native side apps join the same in-process agent as the web windows, so they share channels and intents with them. `Bermuda.Fdc3.Grpc` hosts a gRPC service (Kestrel named-pipe transport, HTTP/2 without TLS) that mirrors `IFdc3Commands`; the contract is `src/Bermuda.Fdc3.Grpc/Protos/fdc3.proto`.
+
+- **Pipe**: `\\.\pipe\bermuda-fdc3-<user name>` by default (pipe names are machine-wide, so the user name keeps users apart). Override with `FDC3_GRPC_PIPE`; disable with `FDC3_GRPC_ENABLED=false` (both in `appsettings.json` or the environment). The pipe is current-user-only.
+- **Connect**: call `Subscribe(app_id)`. `app_id` MUST be in the App Directory, else the call fails with `AppNotFound`. The first stream message is `connected { instance_id }`; context, intent and API-event deliveries follow (`ContextEvent`, `IntentEvent`, `ApiEvent`, mirroring `Fdc3*Event`).
+- **Calls**: every other RPC carries the `x-fdc3-instance` header (the `instance_id`) and must use the same pipe connection as the stream, else `AccessDenied`.
+- **Lifetime**: the stream is the app instance. When it ends (cancelled, process exit, pipe closed) the instance is disconnected like a closed window.
+- **Contexts** are JSON text (`*_json` fields). **Errors** are gRPC errors whose status *detail* is the `Fdc3Errors` string (`NoChannelFound`, `MalformedContext`, …); the code is a coarse mapping (e.g. `NotFound`, `InvalidArgument`, `PermissionDenied`).
+- **Client**: any gRPC stack that can dial a named pipe. `src/Bermuda.Fdc3.Grpc.Tests/Fdc3PipeClient.cs` is a ~100-line .NET reference (`SocketsHttpHandler.ConnectCallback` returning a `NamedPipeClientStream`).
+- Limitations: native apps are not launched by the agent (`open`/intents can target them only while connected), and web windows are still the only apps with launch URLs.
+
 ## 8. Known limitations
 
 - **No origin check.** Any page loaded in a host window gets `window.fdc3` and can issue `fdc3.*` commands as that window's app identity (and, as before this feature, can use the host's other bridges). Fine while the host only loads trusted app URLs; restrict by origin before navigating to untrusted content.
@@ -155,6 +167,7 @@ Rejections are `Error`s whose `message` is the standard FDC3 error string; over 
 | `open` and metadata (4.5) | `DesktopAgentTests`: open with context, unknown app, `getInfo`; `ReviewRegressionTests`: contextless `open` waits for connect, times out |
 | Wire contract (5) | `IpcDispatchTests`: command naming, every command discovered, payload binding, `InvalidArguments`, unwrapped errors |
 | `window.fdc3` (4.2, frontend) | `hostDesktopAgent.test.ts` (listener routing, results, validation, `getResult` caching), `preload.test.ts` |
+| gRPC pipe (7a) | `Bermuda.Fdc3.Grpc.Tests/PipeIntegrationTests`: unknown app rejected, instance lifetime, channel broadcast web↔pipe and pipe↔pipe, intent round trip both directions, error details, instance-header/connection binding |
 | End to end, live app | `e2e/fdc3.spec.ts`: `getInfo`, two linked windows sharing selection and an intent to a specific instance, and a plain-HTML app receiving `open` with a context (proves the preload) |
 
 Run: `dotnet test`, `pnpm test`, and `pnpm e2e` (needs the app: `aspire run`).

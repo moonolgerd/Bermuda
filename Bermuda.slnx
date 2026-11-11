@@ -3,6 +3,8 @@
     <Project Path="src/Bermuda.Api/Bermuda.Api.csproj" />
     <Project Path="src/Bermuda.AppHost/Bermuda.AppHost.csproj" />
     <Project Path="src/Bermuda.Fdc3/Bermuda.Fdc3.csproj" />
+    <Project Path="src/Bermuda.Fdc3.Grpc/Bermuda.Fdc3.Grpc.csproj" />
+    <Project Path="src/Bermuda.Fdc3.Grpc.Tests/Bermuda.Fdc3.Grpc.Tests.csproj" />
     <Project Path="src/Bermuda.Fdc3.Tests/Bermuda.Fdc3.Tests.csproj" />
     <Project Path="src/Bermuda.ServiceDefaults/Bermuda.ServiceDefaults.csproj" />
     <Project Path="src/Bermuda/Bermuda.csproj" />
