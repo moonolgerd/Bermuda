@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Install Bermuda</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font: 16px/1.55 system-ui, sans-serif; background: #2d2d2d; color: #e8e8e8; margin: 0; }
+    main { max-width: 42rem; margin: 0 auto; padding: 3rem 1.25rem; }
+    h1 { margin: 0 0 .25rem; }
+    .version { color: #9aa0a6; margin: 0 0 2rem; }
+    ol { padding-left: 1.25rem; }
+    li { margin-bottom: 1.25rem; }
+    a.button { display: inline-block; background: #2563eb; color: #fff; padding: .5rem 1rem; border-radius: 8px; text-decoration: none; font-weight: 600; }
+    a { color: #6ea8ff; }
+    a.button:hover { background: #1d4ed8; }
+    pre { background: #1a1a1a; padding: .75rem 1rem; border-radius: 8px; overflow-x: auto; }
+    code { font-family: ui-monospace, Consolas, monospace; font-size: .9em; }
+    small, .note { color: #9aa0a6; }
+  </style>
+</head>
+<body>
+<main>
+  <h1>Bermuda</h1>
+  <p class="version">Version @VERSION@ &middot; Windows 10 (1903+) and Windows 11</p>
+
+  <ol>
+@CERT_STEP@
+    <li>
+      <strong>Install the app.</strong><br>
+      <a class="button" href="@APPINSTALLER_URL@">Download Bermuda.appinstaller</a><br>
+      <small>Open the downloaded file. Windows installs Bermuda and checks for updates every time it starts.</small>
+    </li>
+  </ol>
+
+  <p class="note">
+    Prefer a plain installer? Grab the <a href="@MSIX_URL@">MSIX package</a> directly
+    (it will not update itself), or see the <a href="@RELEASE_URL@">release notes</a>.
+  </p>
+</main>
+</body>
+</html>

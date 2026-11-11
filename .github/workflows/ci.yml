@@ -138,6 +138,16 @@ jobs:
           $version = $tag.TrimStart('v')
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
+      # Where the landing page, .appinstaller and .cer are served from. Defaults to the repo's
+      # github.io address; set the PAGES_BASE_URL repository variable for a custom domain.
+      - name: Resolve site URL
+        id: site
+        shell: pwsh
+        run: |
+          $base = "${{ vars.PAGES_BASE_URL }}"
+          if (-not $base) { $base = "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" }
+          echo "url=$($base.TrimEnd('/'))" >> $env:GITHUB_OUTPUT
+
       - name: Install winapp CLI
         shell: pwsh
         run: |
@@ -170,9 +180,9 @@ jobs:
             "-t:CreateMsix",
             "-p:Configuration=Release",
             "-p:MsixVersion=${{ steps.ver.outputs.version }}",
-            # The .appinstaller always lives at the latest release; each MSIX at its own tag's release.
+            # The .appinstaller is served from Pages (always the latest release); each MSIX stays at its own tag's release.
             "-p:MsixUrl=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bermuda_${{ steps.ver.outputs.version }}_x64.msix",
-            "-p:AppInstallerUrl=https://github.com/${{ github.repository }}/releases/latest/download/Bermuda.appinstaller"
+            "-p:AppInstallerUrl=${{ steps.site.outputs.url }}/Bermuda.appinstaller"
           )
           if ($env:MSIX_CERT_PATH) {
             $args += "-p:MsixSigningCert=$env:MSIX_CERT_PATH"
@@ -191,6 +201,23 @@ jobs:
           $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($env:MSIX_CERT_PATH, $env:MSIX_CERT_PASSWORD)
           [IO.File]::WriteAllBytes("artifacts/msix/Bermuda.cer", $cert.Export('Cert'))
 
+      # Landing page + .appinstaller + .cer. The MSIX is too big for Pages and stays on the release.
+      - name: Assemble site
+        shell: pwsh
+        run: >
+          ./.github/pages/build-site.ps1
+          -OutDir site
+          -SourceDir artifacts/msix
+          -Version "${{ steps.ver.outputs.version }}"
+          -AppInstallerUrl "${{ steps.site.outputs.url }}/Bermuda.appinstaller"
+          -MsixUrl "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bermuda_${{ steps.ver.outputs.version }}_x64.msix"
+          -ReleaseUrl "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
       - name: Upload MSIX artifact
         uses: actions/upload-artifact@v4
         with:
@@ -208,3 +235,24 @@ jobs:
             artifacts/msix/Bermuda.appinstaller
             artifacts/msix/Bermuda.cer
           generate_release_notes: true
+
+  # ─── GitHub Pages (landing page, .appinstaller, .cer) ─────────────────────
+  # Needs Pages enabled with "GitHub Actions" as the source, and the github-pages
+  # environment must allow deployments from v* tags (Settings → Environments).
+  pages:
+    name: Deploy site to GitHub Pages
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4
