@@ -11,7 +11,7 @@ Bermuda is a Windows 10/11 desktop application that uses Microsoft WebView2 to h
 - **Aspire orchestrator**: `Bermuda.AppHost` wires up the WPF host, API, Vite dev server, and Relay watch compiler
 - **Frontend**: TypeScript + React 19 + Vite 5; Relay 20 for GraphQL queries; `react-leaflet` 5 + `leaflet` for the map; CSS Modules for styling
 - **IPC**: `PostWebMessageAsJson` / `chrome.webview.postMessage` for host ↔ web; UUID correlation map for request/response
-- **Packaging**: Self-contained MSIX via `dotnet msbuild -t:CreateMsix`; `Microsoft.Windows.SDK.BuildTools` (`MakeAppx.exe`); `Package.appxmanifest` in `src/Bermuda/`; targets Windows 10 1903+ (build 18362)
+- **Packaging**: Self-contained MSIX via `dotnet msbuild -t:CreateMsix`; winapp CLI (`winapp pack`, install: `winget install Microsoft.winappcli --source winget`); `Package.appxmanifest` in `src/Bermuda/`; targets Windows 10 1903+ (build 18362)
 - **CI**: GitHub Actions — `build` job on `windows-latest`; `e2e` job on `self-hosted` Windows runner; `publish` job on `v*.*.*.*` tags produces a signed MSIX GitHub Release
 
 ## Repository Structure
@@ -72,7 +72,7 @@ pnpm build   # relay-compiler → tsc → vite build
 
 # Create a self-contained MSIX installer (output: artifacts/msix/)
 dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
-#   -p:MsixVersion=1.2.3.0 -p:MsixSigningCertThumbprint=<thumbprint>
+#   -p:MsixVersion=1.2.3.0 -p:MsixSigningCert=<cert.pfx> -p:MsixSigningCertPassword=<pw>
 ```
 
 AppHost wires up:
@@ -140,7 +140,7 @@ await provide(page)
 
 Self-hosted runner needed for `e2e` because WebView2 requires an interactive desktop session.
 
-MSIX signing: add `MSIX_CERT_BASE64` (base64 PFX) and `MSIX_CERT_PASSWORD` secrets to the repo; CI imports the cert and passes the thumbprint to `SignTool` automatically.
+MSIX signing: add `MSIX_CERT_BASE64` (base64 PFX) and `MSIX_CERT_PASSWORD` secrets to the repo; CI writes the PFX to a temp file and `winapp pack` signs with it.
 
 ## Security
 
@@ -208,7 +208,7 @@ dotnet run --project src/Bermuda
 # Create a self-contained MSIX installer (output: artifacts/msix/)
 dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 # Override version or sign:
-#   -p:MsixVersion=1.2.3.0 -p:MsixSigningCertThumbprint=<thumbprint>
+#   -p:MsixVersion=1.2.3.0 -p:MsixSigningCert=<cert.pfx> -p:MsixSigningCertPassword=<pw>
 ```
 
 In development, the host loads `http://localhost:5173` (Vite dev server). In production, it loads `ms-appx-web:///` or a local `file://` path pointing to the bundled `dist/` assets.
