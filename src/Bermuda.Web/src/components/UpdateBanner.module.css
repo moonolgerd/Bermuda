@@ -11,4 +11,15 @@
 
 .banner button {
   margin-left: auto;
+  padding: 0.3em 0.9em;
+  font-size: inherit;
+  /* Set explicitly: the global button rule switches to a light background in a light
+     system theme, which left this button's inherited white text unreadable. */
+  background-color: #2563eb;
+  color: #fff;
+}
+
+.banner button:disabled {
+  opacity: 0.6;
+  cursor: default;
 }
