@@ -15,8 +15,53 @@ export interface IpcRequest {
     payload: unknown;
 }
 
+export interface NotificationActivation {
+    action: string;
+    notificationId: string;
+    reply?: string;
+    type: string;
+}
+
+export interface NotificationButton {
+    icon?: string;
+    id: string;
+    label: string;
+}
+
 export interface PingResult {
     pong: boolean;
+}
+
+export interface ShowNotificationRequest {
+    attribution?: string;
+    body: string;
+    buttons?: ReadonlyArray<NotificationButton>;
+    circleIcon?: boolean | null;
+    expiresInSeconds?: number | null;
+    heroImage?: string;
+    icon?: string;
+    id?: string;
+    image?: string;
+    priority?: NotificationPriority | null;
+    replyPlaceholder?: string;
+    silent?: boolean | null;
+    title: string;
+}
+
+export interface ShowNotificationResult {
+    message: string;
+    shown: boolean;
+}
+
+export interface SimulateNotificationActivationRequest {
+    action?: string;
+    notificationId: string;
+    reply?: string;
+}
+
+export interface SimulateNotificationActivationResult {
+    delivered: boolean;
+    message: string;
 }
 
 export interface UpdateApplyResult {
@@ -43,6 +88,8 @@ export interface WindowStateSnapshot {
     isMaximized: boolean;
     isMinimized: boolean;
 }
+
+export type NotificationPriority = 'normal' | 'high' | 'urgent';
 
 export type TaskbarProgressState = 'none' | 'indeterminate' | 'normal' | 'error' | 'paused';
 
@@ -77,6 +124,8 @@ export interface IpcMethods {
   applyUpdate: () => Promise<UpdateApplyResult>;
   checkForUpdate: () => Promise<UpdateCheckResult>;
   ping: () => Promise<PingResult>;
+  showNotification: (payload: ShowNotificationRequest, ) => Promise<ShowNotificationResult>;
+  simulateNotificationActivation: (payload: SimulateNotificationActivationRequest, ) => Promise<SimulateNotificationActivationResult>;
 }
 
 export interface IpcHostObjects {
