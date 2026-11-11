@@ -48,6 +48,20 @@ jobs:
         working-directory: src/Bermuda.Web
         run: pnpm build
 
+      # The MSIX job only packs. `dotnet build` is framework-dependent, so a version tag
+      # also publishes the self-contained win-x64 app and hands that folder across.
+      - name: Publish self-contained app
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: dotnet publish src/Bermuda/Bermuda.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/publish -p:PublishSingleFile=false -p:PublishReadyToRun=false
+
+      - name: Upload self-contained app
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: bermuda-publish-win-x64
+          path: artifacts/publish
+          retention-days: 1
+
   # ─── E2E (requires a Windows desktop runner) ──────────────────────────────
   #
   # The Playwright tests connect to the live app via CDP (port 9222).
@@ -104,6 +118,10 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
+    # Repo default token is contents: read. Creating a release and generating its notes
+    # call the releases API, which requires contents: write.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -113,21 +131,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download self-contained app
+        uses: actions/download-artifact@v4
         with:
-          node-version: '22'
-
-      - name: Enable pnpm
-        run: corepack enable pnpm
-
-      - name: Install frontend deps
-        working-directory: src/Bermuda.Web
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        working-directory: src/Bermuda.Web
-        run: pnpm build
+          name: bermuda-publish-win-x64
+          path: artifacts/publish
 
       # Derive MSIX version from tag (strips leading 'v')
       - name: Derive MSIX version
@@ -177,11 +185,11 @@ jobs:
         run: |
           $args = @(
             "src/Bermuda",
-            # dotnet msbuild does not restore. A clean runner has no project.assets.json,
-            # and the CreateMsix publish fails with NETSDK1004 without this.
+            # dotnet msbuild does not restore. Packing still loads the project, which needs project.assets.json.
             "-restore",
             "-t:CreateMsix",
             "-p:Configuration=Release",
+            "-p:MsixInputDir=${{ github.workspace }}/artifacts/publish",
             "-p:MsixVersion=${{ steps.ver.outputs.version }}",
             # The .appinstaller is served from Pages (always the latest release); each MSIX stays at its own tag's release.
             "-p:MsixUrl=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bermuda_${{ steps.ver.outputs.version }}_x64.msix",

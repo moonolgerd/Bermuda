@@ -17,6 +17,8 @@
       Requires the winapp CLI: winget install Microsoft.winappcli
       To also emit an .appinstaller (auto-update source) next to the MSIX, pass both URLs:
         -p:MsixUrl=<where the .msix will be hosted> -p:AppInstallerUrl=<where the .appinstaller will be hosted>
+      To pack a folder already published self-contained for win-x64, pass it and the publish step is skipped:
+        -p:MsixInputDir=<publish output>
     -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <MsixVersion Condition="'$(MsixVersion)' == ''">1.0.0.0</MsixVersion>
@@ -25,6 +27,7 @@
     <MsixSigningCertPassword Condition="'$(MsixSigningCertPassword)' == ''" />
     <MsixUrl Condition="'$(MsixUrl)' == ''" />
     <AppInstallerUrl Condition="'$(AppInstallerUrl)' == ''" />
+    <MsixInputDir Condition="'$(MsixInputDir)' == ''" />
   </PropertyGroup>
 
   <ItemGroup>
@@ -91,7 +94,7 @@
   <!--
     CreateMsix target
     =================
-    1. dotnet publish → self-contained win-x64 output
+    1. dotnet publish → self-contained win-x64 output, unless MsixInputDir is already that output
     2. Stage published files + AppxManifest.xml + Assets/
     3. winapp pack → Bermuda_<version>_x64.msix (signed when MsixSigningCert is set)
 
@@ -101,13 +104,16 @@
   <Target Name="CreateMsix">
 
     <PropertyGroup>
-      <_PublishDir>$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
+      <_PublishDir Condition="'$(MsixInputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
+      <_PublishDir Condition="'$(MsixInputDir)' != ''">$([MSBuild]::EnsureTrailingSlash('$(MsixInputDir)'))</_PublishDir>
       <_StagingDir>$(MSBuildProjectDirectory)\..\..\artifacts\msix-staging\</_StagingDir>
       <_MsixPath>$(MsixOutputDir)Bermuda_$(MsixVersion)_x64.msix</_MsixPath>
     </PropertyGroup>
 
-    <!-- 1. Publish self-contained win-x64 -->
-    <MSBuild Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
+    <Error Condition="'$(MsixInputDir)' != '' and !Exists('$(MsixInputDir)')" Text="MsixInputDir '$(MsixInputDir)' does not exist. Publish the self-contained win-x64 app first." />
+
+    <!-- 1. Publish self-contained win-x64, unless the caller already did. -->
+    <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
 
     <!-- 2. Prepare a clean staging directory -->
     <RemoveDir Directories="$(_StagingDir)" />
