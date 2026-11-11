@@ -47,9 +47,10 @@ public partial class MainWindow : Window, IWindowController
     public MainWindow(IConfiguration configuration)
     {
         InitializeComponent();
-        _bridge = new HostBridge();
         _webUrl = configuration["WEB_URL"] ?? "http://localhost:5555";
         _cdpPort = configuration.GetValue("CDP_PORT", 0);
+        // A remote debugging port already means "dev/test run"; test-only commands ride on that.
+        _bridge = new HostBridge(testHooks: _cdpPort > 0);
 
         // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native
         // keeps the standard Windows caption. Read once at startup — the web app asks the
@@ -61,6 +62,15 @@ public partial class MainWindow : Window, IWindowController
 
         Loaded += OnLoaded;
         StateChanged += OnStateChanged;
+
+        // A toast (or one of its buttons) was clicked: surface the window and tell the web app.
+        NotificationService.Activated += activation => Dispatcher.Invoke(() =>
+        {
+            ShowWindow();
+            Activate();
+            if (_webView.CoreWebView2 is not null)
+                PushEvent(activation);
+        });
     }
 
     // Client title bar mode: no native title text/icon, but Windows still draws the real

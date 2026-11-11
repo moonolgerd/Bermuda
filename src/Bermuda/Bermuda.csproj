@@ -6,6 +6,11 @@
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Unpackaged runs (dev, e2e) load the Windows App SDK from the app folder instead of needing a framework package. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- The SDK picks its native payload by RID. Keep the output path unchanged so existing tooling finds bin/Debug/<tfm>/Bermuda.exe. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <AssemblyName>Bermuda</AssemblyName>
     <RootNamespace>Bermuda</RootNamespace>
     <RuntimeIdentifiers>win-x64;win-x86;win-arm64</RuntimeIdentifiers>
@@ -35,6 +40,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
     <PackageReference Include="WPF-UI" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" />
   </ItemGroup>
 
   <ItemGroup>
@@ -83,6 +89,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+    <!-- Also next to the exe: AppNotificationManager.Register reads the icon from disk for unpackaged runs. -->
+    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>

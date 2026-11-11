@@ -154,7 +154,8 @@ internal static class TypeScriptDefinition
         {
             sb.Append("    ")
               .Append(CamelCase(property.Name))
-              .Append(": ")
+              // `object?` stays required: the envelope always carries the key (null when empty).
+              .Append(property.NullableAnnotation == NullableAnnotation.Annotated && property.Type.SpecialType != SpecialType.System_Object ? "?: " : ": ")
               .Append(MapType(property.Type))
               .Append(";\n");
         }

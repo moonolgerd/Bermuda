@@ -1,6 +1,11 @@
 import type {
   HostResponse,
   IpcRequest,
+  NotificationActivation,
+  ShowNotificationRequest,
+  ShowNotificationResult,
+  SimulateNotificationActivationRequest,
+  SimulateNotificationActivationResult,
   TaskbarProgressState,
   UpdateApplyResult,
   UpdateCheckResult,
@@ -8,14 +13,31 @@ import type {
   WindowStateSnapshot,
 } from '../ipc/__generated__/ipc'
 
-export type { TaskbarProgressState, UpdateApplyResult, UpdateCheckResult, UpdateStatus }
+export type {
+  NotificationActivation,
+  ShowNotificationRequest,
+  ShowNotificationResult,
+  SimulateNotificationActivationRequest,
+  SimulateNotificationActivationResult,
+  TaskbarProgressState,
+  UpdateApplyResult,
+  UpdateCheckResult,
+  UpdateStatus,
+}
 
 const pending = new Map<string, (result: unknown) => void>()
+const activationListeners = new Set<(activation: NotificationActivation) => void>()
 
 window.chrome?.webview?.addEventListener('message', (e: Event) => {
-  const msg = (e as MessageEvent).data as HostResponse
-  pending.get(msg.id)?.(msg.result)
-  pending.delete(msg.id)
+  const msg = (e as MessageEvent).data as HostResponse | NotificationActivation
+  // Host-pushed events carry a `type` instead of a request `id`.
+  if ('type' in msg && msg.type === 'notificationActivated') {
+    for (const listener of activationListeners) listener(msg)
+    return
+  }
+  const response = msg as HostResponse
+  pending.get(response.id)?.(response.result)
+  pending.delete(response.id)
 })
 
 function invoke<T>(command: string, payload?: unknown): Promise<T> {
@@ -68,8 +90,33 @@ const updatesApi = {
 
 export type UpdatesApi = typeof updatesApi
 
+// Windows toasts. Clicking a toast or one of its buttons raises onActivated: `action` is the
+// clicked button's id (empty for the toast body) and `reply` the reply-box text, if any.
+const notificationsApi = {
+  /** Raise a toast. Never rejects; check `shown`/`message` for failures. */
+  show: (request: ShowNotificationRequest): Promise<ShowNotificationResult> =>
+    invoke<ShowNotificationResult>('showNotification', request),
+  /**
+   * Test hook, only in dev/test runs (host started with CDP_PORT): behaves as if the user clicked the toast
+   * body (no `action`) or one of its buttons, optionally with reply text. Goes through the host's real
+   * click handling and arrives via onActivated.
+   */
+  simulateActivation: (request: SimulateNotificationActivationRequest): Promise<SimulateNotificationActivationResult> =>
+    invoke<SimulateNotificationActivationResult>('simulateNotificationActivation', request),
+  /** Subscribe to toast clicks. Returns an unsubscribe function. */
+  onActivated: (listener: (activation: NotificationActivation) => void): (() => void) => {
+    activationListeners.add(listener)
+    return () => {
+      activationListeners.delete(listener)
+    }
+  },
+} as const
+
+export type NotificationsApi = typeof notificationsApi
+
 export const bermudaHost = {
   invoke,
   window: windowApi,
   updates: updatesApi,
+  notifications: notificationsApi,
 }

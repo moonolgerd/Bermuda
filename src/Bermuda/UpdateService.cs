@@ -19,7 +19,7 @@ internal static class UpdateService
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     private static extern int GetCurrentPackageFullName(ref int length, char[]? name);
 
-    private static bool IsPackaged()
+    internal static bool IsPackaged()
     {
         var length = 0;
         return GetCurrentPackageFullName(ref length, null) != AppModelErrorNoPackage;

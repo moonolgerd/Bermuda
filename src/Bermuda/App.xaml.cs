@@ -14,8 +14,15 @@ public partial class App : Application
             .AddEnvironmentVariables()
             .Build();
 
+        NotificationService.Initialize();
         var window = new MainWindow(config);
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        NotificationService.Clear();
+        base.OnExit(e);
     }
 }
 
