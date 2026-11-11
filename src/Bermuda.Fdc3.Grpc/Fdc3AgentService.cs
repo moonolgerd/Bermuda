@@ -45,7 +45,7 @@ internal sealed class ChannelSink : IFdc3AppSink
 
     public void Post(object message)
     {
-        if (Mapping.ToProtoEvent(message) is { } e) _events.Writer.TryWrite(e);
+        if (GeneratedMapping.ToProtoEvent(message) is { } e) _events.Writer.TryWrite(e);
     }
 
     public void Complete() => _events.Writer.TryComplete();
@@ -53,11 +53,11 @@ internal sealed class ChannelSink : IFdc3AppSink
 
 /// <summary>
 /// The gRPC face of <see cref="DesktopAgent"/>. A <c>Subscribe</c> stream is
-/// one app instance; its other RPCs are served by that instance's
+/// one app instance; its other RPCs (generated, see Generated/Fdc3Generated.g.cs) are served by that instance's
 /// <see cref="Fdc3Connection"/>. <see cref="Fdc3Exception"/>s become gRPC
 /// errors in <see cref="Fdc3ErrorInterceptor"/>.
 /// </summary>
-internal sealed class Fdc3AgentService(DesktopAgent agent, Fdc3ConnectionRegistry registry) : Fdc3Agent.Fdc3AgentBase
+internal sealed partial class Fdc3AgentService(DesktopAgent agent, Fdc3ConnectionRegistry registry) : Fdc3Agent.Fdc3AgentBase
 {
     private static readonly Empty Done = new();
 
@@ -91,116 +91,4 @@ internal sealed class Fdc3AgentService(DesktopAgent agent, Fdc3ConnectionRegistr
     }
 
     private Fdc3Connection Caller(ServerCallContext context) => registry.Resolve(context);
-
-    public override Task<ImplementationMetadata> GetInfo(Empty request, ServerCallContext context) =>
-        Task.FromResult(Mapping.ToProto(Caller(context).GetInfo()));
-
-    public override Task<AppMetadata> GetAppMetadata(AppIdentifier request, ServerCallContext context) =>
-        Task.FromResult(Mapping.ToProto(Caller(context).GetAppMetadata(Mapping.ToContract(request))));
-
-    public override Task<AppIdentifiers> FindInstances(AppIdentifier request, ServerCallContext context)
-    {
-        var result = new AppIdentifiers();
-        result.Apps.AddRange(Caller(context).FindInstances(Mapping.ToContract(request)).Select(Mapping.ToProto));
-        return Task.FromResult(result);
-    }
-
-    public override async Task<AppIdentifier> Open(OpenRequest request, ServerCallContext context) =>
-        Mapping.ToProto(await Caller(context).OpenAsync(Mapping.ToContract(request)));
-
-    public override Task<ChannelInfos> GetUserChannels(Empty request, ServerCallContext context)
-    {
-        var result = new ChannelInfos();
-        result.Channels.AddRange(Caller(context).GetUserChannels().Select(Mapping.ToProto));
-        return Task.FromResult(result);
-    }
-
-    public override Task<Empty> JoinUserChannel(ChannelIdRequest request, ServerCallContext context)
-    {
-        Caller(context).JoinUserChannel(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<Empty> LeaveCurrentChannel(Empty request, ServerCallContext context)
-    {
-        Caller(context).LeaveCurrentChannel();
-        return Task.FromResult(Done);
-    }
-
-    public override Task<CurrentChannel> GetCurrentChannel(Empty request, ServerCallContext context)
-    {
-        var result = new CurrentChannel();
-        if (Caller(context).GetCurrentChannel() is { } channel) result.Channel = Mapping.ToProto(channel);
-        return Task.FromResult(result);
-    }
-
-    public override Task<ChannelInfo> GetOrCreateChannel(ChannelIdRequest request, ServerCallContext context) =>
-        Task.FromResult(Mapping.ToProto(Caller(context).GetOrCreateChannel(Mapping.ToContract(request))));
-
-    public override Task<ChannelInfo> CreatePrivateChannel(Empty request, ServerCallContext context) =>
-        Task.FromResult(Mapping.ToProto(Caller(context).CreatePrivateChannel()));
-
-    public override Task<Empty> DisconnectPrivateChannel(ChannelIdRequest request, ServerCallContext context)
-    {
-        Caller(context).DisconnectPrivateChannel(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<Empty> Broadcast(BroadcastRequest request, ServerCallContext context)
-    {
-        Caller(context).Broadcast(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<CurrentContext> GetCurrentContext(GetCurrentContextRequest request, ServerCallContext context) =>
-        Task.FromResult(Mapping.ToCurrentContext(Caller(context).GetCurrentContext(Mapping.ToContract(request))));
-
-    public override Task<Empty> AddContextListener(AddContextListenerRequest request, ServerCallContext context)
-    {
-        Caller(context).AddContextListener(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<Empty> AddIntentListener(AddIntentListenerRequest request, ServerCallContext context)
-    {
-        Caller(context).AddIntentListener(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<Empty> AddEventListener(AddEventListenerRequest request, ServerCallContext context)
-    {
-        Caller(context).AddEventListener(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<Empty> Unsubscribe(ListenerIdRequest request, ServerCallContext context)
-    {
-        Caller(context).Unsubscribe(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
-
-    public override Task<AppIntent> FindIntent(FindIntentRequest request, ServerCallContext context) =>
-        Task.FromResult(Mapping.ToProto(Caller(context).FindIntent(Mapping.ToContract(request))));
-
-    public override Task<AppIntents> FindIntentsByContext(FindIntentsByContextRequest request, ServerCallContext context)
-    {
-        var result = new AppIntents();
-        result.AppIntents_.AddRange(Caller(context).FindIntentsByContext(Mapping.ToContract(request)).Select(Mapping.ToProto));
-        return Task.FromResult(result);
-    }
-
-    public override async Task<IntentResolutionInfo> RaiseIntent(RaiseIntentRequest request, ServerCallContext context) =>
-        Mapping.ToProto(await Caller(context).RaiseIntentAsync(Mapping.ToContract(request)));
-
-    public override async Task<IntentResolutionInfo> RaiseIntentForContext(RaiseIntentForContextRequest request, ServerCallContext context) =>
-        Mapping.ToProto(await Caller(context).RaiseIntentForContextAsync(Mapping.ToContract(request)));
-
-    public override async Task<IntentResultInfo> GetIntentResult(ResultIdRequest request, ServerCallContext context) =>
-        Mapping.ToProto(await Caller(context).GetIntentResultAsync(Mapping.ToContract(request)));
-
-    public override Task<Empty> SendIntentResult(SendIntentResultRequest request, ServerCallContext context)
-    {
-        Caller(context).SendIntentResult(Mapping.ToContract(request));
-        return Task.FromResult(Done);
-    }
 }

@@ -15,8 +15,25 @@
 
   <ItemGroup>
     <!-- Both: native .NET apps (and the tests) can reuse the generated client. -->
-    <Protobuf Include="Protos\fdc3.proto" GrpcServices="Both" />
+    <Protobuf Include="Generated\fdc3.proto" GrpcServices="Both" />
   </ItemGroup>
+
+  <!--
+    The gRPC surface is generated from IFdc3Commands (Bermuda.IpcContract/Fdc3Contract.cs) by
+    Bermuda.Fdc3.Grpc.Generator: Generated/fdc3.proto (-> Grpc.Tools) and Generated/Fdc3Generated.g.cs
+    (proto <-> contract mapping and the service overrides). The outputs are checked in, like ipc.d.ts, and
+    refreshed here whenever the contract or the generator changes. Hand-written: Mapping.cs (JSON helper),
+    Fdc3AgentService.cs (Subscribe, caller lookup).
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3.Grpc.Generator\Bermuda.Fdc3.Grpc.Generator.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateFdc3Grpc" AfterTargets="ResolveProjectReferences"
+          Inputs="..\Bermuda.IpcContract\Fdc3Contract.cs;..\Bermuda.Fdc3.Grpc.Generator\Program.cs"
+          Outputs="Generated\fdc3.proto;Generated\Fdc3Generated.g.cs">
+    <Exec Command="dotnet &quot;$(MSBuildProjectDirectory)\..\Bermuda.Fdc3.Grpc.Generator\bin\$(Configuration)\net10.0\Bermuda.Fdc3.Grpc.Generator.dll&quot; &quot;$(MSBuildProjectDirectory)\Generated&quot;" />
+  </Target>
 
   <ItemGroup>
     <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />

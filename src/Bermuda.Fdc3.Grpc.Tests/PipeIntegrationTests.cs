@@ -113,7 +113,7 @@ public sealed class PipeIntegrationTests : IAsyncLifetime
         // a late joiner on the channel sees the current context
         var current = await native.Rpc.GetCurrentContextAsync(
             new GetCurrentContextRequest { ChannelId = "fdc3.channel.1" }, native.Headers);
-        Assert.Contains("\"9\"", current.ContextJson);
+        Assert.Contains("\"9\"", current.ResultJson);
     }
 
     [Fact]

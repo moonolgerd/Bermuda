@@ -1,0 +1,20 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Build-time generator: reads IFdc3Commands (and the records it uses) from
+    Bermuda.IpcContract by reflection and writes the gRPC surface into
+    ../Bermuda.Fdc3.Grpc/Generated: fdc3.proto, plus the proto<->contract
+    mapping and the service overrides. Run by Bermuda.Fdc3.Grpc's build.
+  -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.IpcContract\Bermuda.IpcContract.csproj" />
+  </ItemGroup>
+
+</Project>

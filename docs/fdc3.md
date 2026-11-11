@@ -140,7 +140,9 @@ Rejections are `Error`s whose `message` is the standard FDC3 error string; over 
 
 ## 7a. Native apps over gRPC (named pipe)
 
-Native side apps join the same in-process agent as the web windows, so they share channels and intents with them. `Bermuda.Fdc3.Grpc` hosts a gRPC service (Kestrel named-pipe transport, HTTP/2 without TLS) that mirrors `IFdc3Commands`; the contract is `src/Bermuda.Fdc3.Grpc/Protos/fdc3.proto`.
+Native side apps join the same in-process agent as the web windows, so they share channels and intents with them. `Bermuda.Fdc3.Grpc` hosts a gRPC service (Kestrel named-pipe transport, HTTP/2 without TLS) that mirrors `IFdc3Commands`; the contract is `src/Bermuda.Fdc3.Grpc/Generated/fdc3.proto`.
+
+**Generated, not hand-written.** `Bermuda.Fdc3.Grpc.Generator` reads `IFdc3Commands` and the records it uses by reflection and writes `Generated/fdc3.proto` (consumed by Grpc.Tools) and `Generated/Fdc3Generated.g.cs` (proto↔contract mapping and one service override per command). Building `Bermuda.Fdc3.Grpc` re-runs it whenever `Fdc3Contract.cs` or the generator changes; the outputs are checked in, like `ipc.d.ts`. Adding a command, a field or a record to the contract therefore updates the gRPC side with no further edits. Field numbers follow constructor order, so only append fields. Hand-written: the `Subscribe` stream and caller lookup (`Fdc3AgentService.cs`) and the JSON helper (`Mapping.cs`).
 
 - **Pipe**: `\\.\pipe\bermuda-fdc3-<user name>` by default (pipe names are machine-wide, so the user name keeps users apart). Override with `FDC3_GRPC_PIPE`; disable with `FDC3_GRPC_ENABLED=false` (both in `appsettings.json` or the environment). The pipe is current-user-only.
 - **Connect**: call `Subscribe(app_id)`. `app_id` MUST be in the App Directory, else the call fails with `AppNotFound`. The first stream message is `connected { instance_id }`; context, intent and API-event deliveries follow (`ContextEvent`, `IntentEvent`, `ApiEvent`, mirroring `Fdc3*Event`).
