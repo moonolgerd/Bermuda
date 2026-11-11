@@ -115,7 +115,7 @@
   <!--
     CreateMsix target
     =================
-    1. dotnet publish → self-contained win-x64 output, unless MsixInputDir is already that output
+    1. dotnet publish (Bermuda, then Bermuda.NativeApp into the same folder) → self-contained win-x64 output, unless MsixInputDir is already that output
     2. Stage published files + AppxManifest.xml + Assets/
     3. winapp pack → Bermuda_<version>_x64.msix (signed when MsixSigningCert is set)
 
@@ -135,6 +135,11 @@
 
     <!-- 1. Publish self-contained win-x64, unless the caller already did. -->
     <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
+
+    <!-- The native side app is a second application of this package: publish it into the same folder (their
+         shared runtime and library files are identical, so the folder just merges). -->
+    <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="..\Bermuda.NativeApp\Bermuda.NativeApp.csproj" Targets="Restore;Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
+    <Error Condition="!Exists('$(_PublishDir)Bermuda.NativeApp.exe')" Text="'$(_PublishDir)' has no Bermuda.NativeApp.exe. The package contains the native app too: publish src/Bermuda.NativeApp (self-contained, win-x64) into the same folder." />
 
     <!-- 2. Prepare a clean staging directory -->
     <RemoveDir Directories="$(_StagingDir)" />

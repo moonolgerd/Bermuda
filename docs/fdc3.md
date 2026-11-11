@@ -28,7 +28,7 @@ Make the Bermuda host an [FDC3 2.2](https://fdc3.finos.org/docs/2.2/fdc3-intro) 
 |---|---|---|
 | `DesktopAgent` | `src/Bermuda.Fdc3` | All state and rules: instances, channels, listeners, intents, results, launching. One per process. |
 | `Fdc3Connection` | `src/Bermuda.Fdc3` | One app instance's handle on the agent; implements the command interface for that instance. `IDisposable`. |
-| `IFdc3Commands` | `src/Bermuda.IpcContract/Fdc3Contract.cs` | The wire contract: one method per `fdc3.*` command. TypeScript types are generated from it into `ipc.d.ts`. |
+| `IFdc3Commands` | `src/Bermuda.IpcContract/Generated/Fdc3Contract.g.cs` | The wire contract: one method per `fdc3.*` command. Generated from `src/Bermuda.Fdc3.Proto/Protos/fdc3.proto` (see 7a); TypeScript types are generated from it into `ipc.d.ts`. |
 | `HostBridge` | `src/Bermuda` | Dispatches an `invoke()` command to the window's connection, binding the JSON payload to the method's parameter type. |
 | `MainWindow` | `src/Bermuda` | One connected instance per page load; injects the preload; delivers the agent's pushes to the page. |
 | `WindowAppLauncher` | `src/Bermuda` | Opens App Directory apps in new host windows for `open` and for intents. |
@@ -140,16 +140,23 @@ Rejections are `Error`s whose `message` is the standard FDC3 error string; over 
 
 ## 7a. Native apps over gRPC (named pipe)
 
-Native side apps join the same in-process agent as the web windows, so they share channels and intents with them. `Bermuda.Fdc3.Grpc` hosts a gRPC service (Kestrel named-pipe transport, HTTP/2 without TLS) that mirrors `IFdc3Commands`; the contract is `src/Bermuda.Fdc3.Grpc/Protos/fdc3.proto`.
+Native side apps join the same in-process agent as the web windows, so they share channels and intents with them. `Bermuda.Fdc3.Grpc` hosts a gRPC service (Kestrel named-pipe transport, HTTP/2 without TLS) that serves `IFdc3Commands`.
 
-**The proto is the source of truth** for the gRPC surface. Grpc.Tools builds the messages and the `Fdc3Agent` service base from it. After protoc runs, `Bermuda.Fdc3.Grpc.Generator` reads protoc's descriptor set and checks it against `IFdc3Commands` and the records it uses. Any difference (a missing or extra rpc, message or field, or a type, `optional` or `repeated` mismatch) **fails the build** and lists the differences. When they agree, it writes `Generated/Fdc3Generated.g.cs` (checked in, refreshed by the build): the proto↔contract mapping and one service override per rpc. So changing the gRPC surface means editing the proto and updating `Fdc3Contract.cs` to match. The mapping conventions are at the top of the proto. Hand-written: the `Subscribe` stream and caller lookup (`Fdc3AgentService.cs`) and the JSON helper (`Mapping.cs`).
+**The proto is the source of truth for the whole FDC3 contract**, web and native: `src/Bermuda.Fdc3.Proto/Protos/fdc3.proto`. Building `Bermuda.Fdc3.Proto` does three things:
+
+1. Grpc.Tools turns it into the gRPC messages and the `Fdc3Agent` service (and client) classes.
+2. `Bermuda.Fdc3.Grpc.Generator` reads protoc's descriptor set and writes `src/Bermuda.IpcContract/Generated/Fdc3Contract.g.cs`: the `Fdc3*` records and `IFdc3Commands` that `DesktopAgent`, `Fdc3Connection` and the web bridge are written against (and that `ipc.d.ts` is generated from).
+3. The same tool writes `src/Bermuda.Fdc3.Grpc/Generated/Fdc3Generated.g.cs`: the proto↔record mapping and one service override per rpc.
+
+Both generated files are checked in, like `ipc.d.ts`, and CI fails if they are stale. So adding or changing a command, field or message means editing the proto and rebuilding; nothing else is hand-synchronised. The naming and nullability conventions (and the `async` method option for commands that wait on another app) are documented at the top of the proto; a proto that breaks them fails the build with the list of problems. Hand-written: the `Subscribe` stream and caller lookup (`Fdc3AgentService.cs`), the JSON helper (`Mapping.cs`) and the host and client.
 
 - **Pipe**: `\\.\pipe\bermuda-fdc3-<user name>` by default (pipe names are machine-wide, so the user name keeps users apart). Override with `FDC3_GRPC_PIPE`; disable with `FDC3_GRPC_ENABLED=false` (both in `appsettings.json` or the environment). The pipe is current-user-only.
 - **Connect**: call `Subscribe(app_id)`. `app_id` MUST be in the App Directory, else the call fails with `AppNotFound`. The first stream message is `connected { instance_id }`; context, intent and API-event deliveries follow (`ContextEvent`, `IntentEvent`, `ApiEvent`, mirroring `Fdc3*Event`).
 - **Calls**: every other RPC carries the `x-fdc3-instance` header (the `instance_id`) and must use the same pipe connection as the stream, else `AccessDenied`.
 - **Lifetime**: the stream is the app instance. When it ends (cancelled, process exit, pipe closed) the instance is disconnected like a closed window.
 - **Contexts** are JSON text (`*_json` fields). **Errors** are gRPC errors whose status *detail* is the `Fdc3Errors` string (`NoChannelFound`, `MalformedContext`, …); the code is a coarse mapping (e.g. `NotFound`, `InvalidArgument`, `PermissionDenied`).
-- **Client**: any gRPC stack that can dial a named pipe. `Fdc3PipeClient` (in `Bermuda.Fdc3.Grpc`; used by the sample `src/Bermuda.NativeApp`) is a ~100-line .NET reference (`SocketsHttpHandler.ConnectCallback` returning a `NamedPipeClientStream`).
+- **Client**: any gRPC stack that can dial a named pipe. `Fdc3PipeClient` (in `Bermuda.Fdc3.Proto`, so a client does not need ASP.NET Core; used by the sample `src/Bermuda.NativeApp`) is a ~100-line .NET reference (`SocketsHttpHandler.ConnectCallback` returning a `NamedPipeClientStream`).
+- **Sample app and packaging**: `src/Bermuda.NativeApp` connects as `native-incidents` (in `fdc3-appd.json`), joins a channel and acknowledges incidents; Aspire starts it next to the host in development. For installs it ships **inside Bermuda's MSIX** as a second application of that package (`Package.appxmanifest`: full trust, no Start menu entry, its own startup task), so it deploys, updates and is signed exactly like Bermuda, from the same `.appinstaller`. `CreateMsix` publishes it into the same folder as the host, and CI does the same for tagged releases. It starts at sign-in and retries until the host's pipe is up.
 - Limitations: native apps are not launched by the agent (`open`/intents can target them only while connected), and web windows are still the only apps with launch URLs.
 
 ## 8. Known limitations
