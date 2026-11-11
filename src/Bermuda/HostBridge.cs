@@ -1,5 +1,6 @@
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using Bermuda.Fdc3;
 using Bermuda.IpcContract;
 
 namespace Bermuda;
@@ -30,12 +31,17 @@ public class HostBridge(Func<IFdc3Commands> fdc3) : IHostCommands
         {
             return await ipcCommand.InvokeAsync(TargetFor(ipcCommand.Interface), payload as JsonElement?, JsonSerializerOptions.Web);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is Fdc3Exception or IpcInvalidPayloadException)
         {
             // Fdc3Exception messages are the standard FDC3 error strings (and
             // IpcInvalidPayloadException's is "InvalidArguments"), which the
             // frontend's window.fdc3 rejects with as-is.
             return new { error = ex.Message };
+        }
+        catch (Exception)
+        {
+            // Internal failures must not leak their message to page script.
+            return new { error = "Internal error" };
         }
     }
 

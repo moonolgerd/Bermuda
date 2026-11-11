@@ -88,4 +88,19 @@ test.describe('FDC3', () => {
       await closed
     }
   })
+
+  test('the "Open probe" button opens the probe window', async ({ page }) => {
+    const [probe] = await Promise.all([
+      page.context().waitForEvent('page'),
+      page.getByRole('button', { name: 'Open probe' }).click(),
+    ])
+
+    try {
+      await expect(probe.locator('#status')).toHaveText('fdc3 ready')
+    } finally {
+      const closed = probe.waitForEvent('close')
+      await probe.evaluate(() => window.chrome.webview.hostObjects.windowController.Close()).catch(() => {})
+      await closed
+    }
+  })
 })

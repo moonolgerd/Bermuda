@@ -1,5 +1,6 @@
 import { Suspense, useEffect } from 'react'
 import { ChannelPicker } from './components/ChannelPicker'
+import { OpenWindows } from './components/OpenWindows'
 import { IncidentsDashboard } from './components/IncidentsDashboard'
 import { bermudaHost } from './bridge'
 import './App.css'
@@ -19,6 +20,7 @@ function App() {
       <header className="app-header">
         <h1>Bermuda</h1>
         <ChannelPicker />
+        <OpenWindows />
       </header>
       <Suspense fallback={<p>Loading incidents…</p>}>
         <IncidentsDashboard />

@@ -106,21 +106,41 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         _webView.CoreWebView2.AddHostObjectToScript("windowController", new WindowScriptHost(this));
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
         _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+        _webView.CoreWebView2.ContentLoading += OnContentLoading;
         _webView.CoreWebView2.Navigate(_webUrl);
     }
 
     private static string Fdc3PreloadPath { get; } = Path.Combine(AppContext.BaseDirectory, "Preload", "fdc3-preload.js");
 
+    private string Origin(string? uri) =>
+        Uri.TryCreate(uri, UriKind.Absolute, out var u) ? u.GetLeftPart(UriPartial.Authority) : "";
+
+    private bool IsTrustedOrigin(string? uri) =>
+        string.Equals(Origin(uri), Origin(_webUrl), StringComparison.OrdinalIgnoreCase);
+
+    // Only this window's own origin may be shown: anything else would be
+    // connected to the agent (and the host bridge) under this window's appId.
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        // Redirects fire this again for the same navigation. Reconnecting would
-        // drop the launcher-assigned instance (and its pending open/intent
-        // delivery) before the page that finally loads gets to register.
-        if (e.IsRedirected && _fdc3Connection is not null) return;
+        if (!IsTrustedOrigin(e.Uri)) e.Cancel = true;
+    }
 
-        var isFirstNavigation = _fdc3Connection is null;
-        _fdc3Connection?.Dispose();
-        _fdc3Connection = _fdc3.Connect(_fdc3AppId, this, isFirstNavigation ? _fdc3LaunchInstanceId : null);
+    // Reconnect once a navigation commits (ContentLoading fires before the
+    // page's scripts and not for cancelled/failed navigations or redirect hops),
+    // so the live page keeps its listeners until it is really replaced.
+    private void OnContentLoading(object? sender, CoreWebView2ContentLoadingEventArgs e)
+    {
+        try
+        {
+            var isFirstNavigation = _fdc3Connection is null;
+            _fdc3Connection?.Dispose();
+            _fdc3Connection = null;
+            _fdc3Connection = _fdc3.Connect(_fdc3AppId, this, isFirstNavigation ? _fdc3LaunchInstanceId : null);
+        }
+        catch (Exception)
+        {
+            // Leave the page unconnected (commands fail with an error) rather than crash the host.
+        }
     }
 
     // IFdc3AppSink: the agent's context/intent/event deliveries for this window's page.
@@ -139,7 +159,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
             return;
         }
 
-        if (req is null) return;
+        if (req is null || !IsTrustedOrigin(e.Source)) return;
 
         var result = await _bridge.HandleAsync(req.Command, req.Payload);
         if (_closed) return;
@@ -152,7 +172,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     /// <summary>Posts to the page unless the window has closed (which disposes the WebView2).</summary>
     private void PostToPage(string json)
     {
-        Dispatcher.Invoke(() =>
+        Dispatcher.BeginInvoke(() =>
         {
             if (!_closed) _webView.CoreWebView2.PostWebMessageAsJson(json);
         });

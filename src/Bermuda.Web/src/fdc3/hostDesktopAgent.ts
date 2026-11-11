@@ -177,7 +177,8 @@ export class HostDesktopAgent implements DesktopAgent {
         return
       }
       case 'fdc3.intent':
-        void this.handleIntent(event as Fdc3IntentEvent)
+        // Reporting the outcome can itself be refused by the host; nothing more to do then.
+        this.handleIntent(event as Fdc3IntentEvent).catch(() => {})
         return
       case 'fdc3.event': {
         const e = event as Fdc3ApiEvent

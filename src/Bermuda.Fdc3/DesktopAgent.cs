@@ -288,10 +288,23 @@ public sealed class DesktopAgent
                 return existing.Info;
             }
 
+            EvictIdleAppChannels();
             var channel = new ChannelState(channelId, "app", null);
             _channels[channelId] = channel;
             return channel.Info;
         }
+    }
+
+    private const int MaxAppChannels = 1000;
+
+    /// <summary>Past a cap, drops app channels nobody listens on (and their stored contexts).</summary>
+    private void EvictIdleAppChannels()
+    {
+        if (_channels.Values.Count(c => c.Type == "app") < MaxAppChannels) return;
+
+        var listened = _listeners.Where(l => l.ChannelId is not null).Select(l => l.ChannelId!).ToHashSet(StringComparer.Ordinal);
+        foreach (var id in _channels.Values.Where(c => c.Type == "app" && !listened.Contains(c.Id)).Select(c => c.Id).ToList())
+            _channels.Remove(id);
     }
 
     internal Fdc3ChannelInfo CreatePrivateChannel(AppInstance caller)
@@ -964,11 +977,15 @@ public sealed class DesktopAgent
 
     private async Task<bool> WaitForDeliveryAsync(PendingDelivery pending)
     {
-        var finished = await Task.WhenAny(pending.Delivered.Task, Task.Delay(_launchTimeout, _time));
-        if (finished == pending.Delivered.Task) return pending.Delivered.Task.Result;
-
-        lock (_gate) _pendingDeliveries.Remove(pending);
-        return false;
+        try
+        {
+            return await pending.Delivered.Task.WaitAsync(_launchTimeout, _time);
+        }
+        catch (TimeoutException)
+        {
+            lock (_gate) _pendingDeliveries.Remove(pending);
+            return false;
+        }
     }
 
     private List<PendingDelivery> TakePendingDeliveries(string instanceId, PendingKind kind, Func<string, bool> matches)

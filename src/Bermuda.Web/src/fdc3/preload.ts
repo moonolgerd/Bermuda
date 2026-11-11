@@ -16,17 +16,21 @@ function install() {
   // Top-level documents only: frames don't get their own instance.
   if (!webview || window.top !== window || window.fdc3) return
 
-  const pending = new Map<string, (result: unknown) => void>()
+  // Long enough for slow intent handlers (getIntentResult waits on them), short
+  // enough that a response the host dropped (e.g. across a reload) can't hang forever.
+  const CALL_TIMEOUT_MS = 10 * 60 * 1000
+  const pending = new Map<string, { resolve: (result: unknown) => void; timer: ReturnType<typeof setTimeout> }>()
   const eventHandlers = new Set<(event: { type: string }) => void>()
 
   webview.addEventListener('message', (e: MessageEvent) => {
     const msg = e.data as HostResponse | { type: string }
     if ('id' in msg) {
       // Responses to the page's own invoke() calls aren't ours; leave them be.
-      const resolve = pending.get(msg.id)
-      if (!resolve) return
+      const entry = pending.get(msg.id)
+      if (!entry) return
       pending.delete(msg.id)
-      resolve(msg.result)
+      clearTimeout(entry.timer)
+      entry.resolve(msg.result)
       return
     }
     if (typeof msg.type === 'string' && msg.type.startsWith('fdc3.')) {
@@ -36,9 +40,13 @@ function install() {
 
   const transport: Fdc3Transport = {
     call: (command, payload) =>
-      new Promise(resolve => {
+      new Promise((resolve, reject) => {
         const id = crypto.randomUUID()
-        pending.set(id, resolve)
+        const timer = setTimeout(() => {
+          pending.delete(id)
+          reject(new Error(`${command} timed out`))
+        }, CALL_TIMEOUT_MS)
+        pending.set(id, { resolve, timer })
         const request: IpcRequest = { id, command, payload }
         webview.postMessage(request)
       }),

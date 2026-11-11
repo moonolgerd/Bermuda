@@ -103,7 +103,8 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
           return;
         }
         case "fdc3.intent":
-          void this.handleIntent(event);
+          this.handleIntent(event).catch(() => {
+          });
           return;
         case "fdc3.event": {
           const e = event;
@@ -232,15 +233,17 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
   function install() {
     const webview = window.chrome?.webview;
     if (!webview || window.top !== window || window.fdc3) return;
+    const CALL_TIMEOUT_MS = 10 * 60 * 1e3;
     const pending = /* @__PURE__ */ new Map();
     const eventHandlers = /* @__PURE__ */ new Set();
     webview.addEventListener("message", (e) => {
       const msg = e.data;
       if ("id" in msg) {
-        const resolve = pending.get(msg.id);
-        if (!resolve) return;
+        const entry = pending.get(msg.id);
+        if (!entry) return;
         pending.delete(msg.id);
-        resolve(msg.result);
+        clearTimeout(entry.timer);
+        entry.resolve(msg.result);
         return;
       }
       if (typeof msg.type === "string" && msg.type.startsWith("fdc3.")) {
@@ -248,9 +251,13 @@ var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "sy
       }
     });
     const transport = {
-      call: (command, payload) => new Promise((resolve) => {
+      call: (command, payload) => new Promise((resolve, reject) => {
         const id = crypto.randomUUID();
-        pending.set(id, resolve);
+        const timer = setTimeout(() => {
+          pending.delete(id);
+          reject(new Error(`${command} timed out`));
+        }, CALL_TIMEOUT_MS);
+        pending.set(id, { resolve, timer });
         const request = { id, command, payload };
         webview.postMessage(request);
       }),

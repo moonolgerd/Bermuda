@@ -54,7 +54,7 @@ jobs:
       # fdc3-preload.js is committed (the host builds without Node), so make
       # sure it matches src/Bermuda.Web/src/fdc3.
       - name: Check committed FDC3 preload is up to date
-        run: git diff --exit-code -- src/Bermuda/Preload
+        run: git diff --ignore-cr-at-eol --exit-code -- src/Bermuda/Preload
 
   # ─── E2E (requires a Windows desktop runner) ──────────────────────────────
   #
