@@ -169,7 +169,10 @@ jobs:
             "src/Bermuda",
             "-t:CreateMsix",
             "-p:Configuration=Release",
-            "-p:MsixVersion=${{ steps.ver.outputs.version }}"
+            "-p:MsixVersion=${{ steps.ver.outputs.version }}",
+            # The .appinstaller always lives at the latest release; each MSIX at its own tag's release.
+            "-p:MsixUrl=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bermuda_${{ steps.ver.outputs.version }}_x64.msix",
+            "-p:AppInstallerUrl=https://github.com/${{ github.repository }}/releases/latest/download/Bermuda.appinstaller"
           )
           if ($env:MSIX_CERT_PATH) {
             $args += "-p:MsixSigningCert=$env:MSIX_CERT_PATH"
@@ -177,14 +180,31 @@ jobs:
           }
           dotnet msbuild @args
 
+      # Public half of the signing cert. Users trust it once (Trusted People) before
+      # installing from the .appinstaller; the PFX itself never leaves the secrets.
+      - name: Export public certificate
+        if: env.MSIX_CERT_PATH != ''
+        env:
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($env:MSIX_CERT_PATH, $env:MSIX_CERT_PASSWORD)
+          [IO.File]::WriteAllBytes("artifacts/msix/Bermuda.cer", $cert.Export('Cert'))
+
       - name: Upload MSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: Bermuda-msix-${{ steps.ver.outputs.version }}
-          path: artifacts/msix/*.msix
+          path: |
+            artifacts/msix/*.msix
+            artifacts/msix/Bermuda.appinstaller
+            artifacts/msix/Bermuda.cer
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/msix/*.msix
+          files: |
+            artifacts/msix/*.msix
+            artifacts/msix/Bermuda.appinstaller
+            artifacts/msix/Bermuda.cer
           generate_release_notes: true

@@ -2,7 +2,7 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
@@ -13,14 +13,18 @@
       MSIX packaging — override at the command line:
         dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release -p:MsixVersion=1.2.3.0
       To sign, also pass a PFX (and its password if not the winapp default):
-        -p:MsixSigningCert=<path	o\cert.pfx> -p:MsixSigningCertPassword=<password>
+        -p:MsixSigningCert=<path\to\cert.pfx> -p:MsixSigningCertPassword=<password>
       Requires the winapp CLI: winget install Microsoft.winappcli
+      To also emit an .appinstaller (auto-update source) next to the MSIX, pass both URLs:
+        -p:MsixUrl=<where the .msix will be hosted> -p:AppInstallerUrl=<where the .appinstaller will be hosted>
     -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <MsixVersion Condition="'$(MsixVersion)' == ''">1.0.0.0</MsixVersion>
     <MsixOutputDir Condition="'$(MsixOutputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\msix\</MsixOutputDir>
     <MsixSigningCert Condition="'$(MsixSigningCert)' == ''" />
     <MsixSigningCertPassword Condition="'$(MsixSigningCertPassword)' == ''" />
+    <MsixUrl Condition="'$(MsixUrl)' == ''" />
+    <AppInstallerUrl Condition="'$(AppInstallerUrl)' == ''" />
   </PropertyGroup>
 
   <ItemGroup>
@@ -115,8 +119,15 @@
     </ItemGroup>
     <Copy SourceFiles="@(_PublishedFiles)" DestinationFolder="$(_StagingDir)%(RecursiveDir)" SkipUnchangedFiles="false" />
 
-    <!-- 4. Copy manifest — winapp finds it in the input folder as appxmanifest.xml -->
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Package.appxmanifest" DestinationFiles="$(_StagingDir)appxmanifest.xml" />
+    <!-- 4. Stage the manifest — winapp finds it in the input folder as appxmanifest.xml.
+         The Identity Version is stamped from MsixVersion: Windows compares that value, not the
+         file name, to decide whether an .appinstaller update is newer. -->
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(MsixVersion)', '^\d+\.\d+\.\d+\.\d+$'))" Text="MsixVersion must have four parts (e.g. 1.2.3.0), got '$(MsixVersion)'." />
+    <PropertyGroup>
+      <_ManifestText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Package.appxmanifest'))</_ManifestText>
+      <_ManifestText>$([System.Text.RegularExpressions.Regex]::Replace('$(_ManifestText)', '(?s)(&lt;Identity[^&gt;]*?Version=")[^"]*(")', '${1}$(MsixVersion)${2}'))</_ManifestText>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_StagingDir)appxmanifest.xml" Lines="$(_ManifestText)" Overwrite="true" />
 
     <!-- 5. Copy asset images -->
     <ItemGroup>
@@ -132,6 +143,17 @@
       <_WinappSignArgs Condition="'$(MsixSigningCert)' == ''">--no-sign</_WinappSignArgs>
     </PropertyGroup>
     <Exec Command="winapp pack &quot;$(_StagingDir.TrimEnd('\'))&quot; --manifest &quot;$(_StagingDir)appxmanifest.xml&quot; --output &quot;$(_MsixPath)&quot; --skip-pri $(_WinappSignArgs)" WorkingDirectory="$(MSBuildProjectDirectory)" />
+
+    <!-- 7. Optionally write the .appinstaller that points installed copies at this MSIX -->
+    <PropertyGroup Condition="'$(AppInstallerUrl)' != ''">
+      <_AppInstallerPath>$(MsixOutputDir)Bermuda.appinstaller</_AppInstallerPath>
+      <_IdentityName>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', 'Name="([^"]*)"').Groups[1].Value)</_IdentityName>
+      <_IdentityPublisher>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', 'Publisher="([^"]*)"').Groups[1].Value)</_IdentityPublisher>
+      <_AppInstallerText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Bermuda.appinstaller.template'))</_AppInstallerText>
+      <_AppInstallerText>$(_AppInstallerText.Replace('@VERSION@', '$(MsixVersion)').Replace('@NAME@', '$(_IdentityName)').Replace('@PUBLISHER@', '$(_IdentityPublisher)').Replace('@MSIX_URL@', '$(MsixUrl)').Replace('@APPINSTALLER_URL@', '$(AppInstallerUrl)'))</_AppInstallerText>
+    </PropertyGroup>
+    <Error Condition="'$(AppInstallerUrl)' != '' and '$(MsixUrl)' == ''" Text="AppInstallerUrl needs MsixUrl as well." />
+    <WriteLinesToFile Condition="'$(AppInstallerUrl)' != ''" File="$(_AppInstallerPath)" Lines="$(_AppInstallerText)" Overwrite="true" />
 
     <Message Text="&#xA;MSIX: $(_MsixPath)&#xA;" Importance="high" />
 

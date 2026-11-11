@@ -1,4 +1,4 @@
-using System.Runtime.InteropServices;
+﻿using System.Runtime.InteropServices;
 
 namespace Bermuda;
 
@@ -21,6 +21,8 @@ public class HostBridge
             return command.ToLowerInvariant() switch
             {
                 "ping" => new { pong = true },
+                "checkforupdate" => await UpdateService.CheckAsync(),
+                "applyupdate" => await UpdateService.ApplyAsync(),
                 _ => new { error = "Unhandled command" }
             };
         }

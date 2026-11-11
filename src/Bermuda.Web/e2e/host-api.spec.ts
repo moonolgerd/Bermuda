@@ -106,6 +106,25 @@ test.describe('generated contract vs live host object', () => {
   }
 })
 
+test.describe('updates', () => {
+  // The e2e host runs unpackaged, so there is no .appinstaller to check against.
+  test('checkForUpdate reports unsupported outside an installed package', async ({ page }) => {
+    const result = await inPage<{ status: string; currentVersion: string; message: string }>(
+      page,
+      'return await bermudaHost.updates.check()',
+    )
+    expect(Object.keys(result).sort()).toEqual(['currentVersion', 'message', 'status'])
+    expect(result.status).toBe('unsupported')
+    expect(result.currentVersion).toBe('dev')
+  })
+
+  test('applyUpdate refuses to start without an update source', async ({ page }) => {
+    const result = await inPage<{ started: boolean; message: string }>(page, 'return await bermudaHost.updates.apply()')
+    expect(result.started).toBe(false)
+    expect(result.message).not.toBe('')
+  })
+})
+
 test.describe('window.getState()', () => {
   test('returns the WindowStateSnapshot shape', async ({ page }) => {
     const state = await getState(page)

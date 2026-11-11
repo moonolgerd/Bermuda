@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -16,10 +17,12 @@ public partial class MainWindow : Window, IWindowController
     // System.Text.Json's default is to preserve C# property names as-is
     // (PascalCase); the web side expects camelCase (matches the generated
     // TS shapes in src/ipc/__generated__/ipc.d.ts), so every host->web message
-    // goes through this.
+    // goes through this. Enums go out as their camelCase names, which is the
+    // string-literal union the generator emits for [IpcType] enums (UpdateStatus, ...).
     private static readonly JsonSerializerOptions HostToWebJson = new()
     {
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
+        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
     // The web side sends camelCase requests ({ id, command, payload }); the C# records

@@ -19,6 +19,17 @@ export interface PingResult {
     pong: boolean;
 }
 
+export interface UpdateApplyResult {
+    message: string;
+    started: boolean;
+}
+
+export interface UpdateCheckResult {
+    currentVersion: string;
+    message: string;
+    status: UpdateStatus;
+}
+
 export interface WindowBounds {
     height: number;
     left: number;
@@ -34,6 +45,8 @@ export interface WindowStateSnapshot {
 }
 
 export type TaskbarProgressState = 'none' | 'indeterminate' | 'normal' | 'error' | 'paused';
+
+export type UpdateStatus = 'unsupported' | 'none' | 'available' | 'required' | 'unknown' | 'error';
 
 export interface WindowControllerHostObject {
   readonly UsesClientTitleBar: Promise<boolean>;
@@ -61,6 +74,8 @@ export interface WindowControllerHostObject {
 
 export interface IpcMethods {
   invoke: <T>(command: string) => Promise<T>;
+  applyUpdate: () => Promise<UpdateApplyResult>;
+  checkForUpdate: () => Promise<UpdateCheckResult>;
   ping: () => Promise<PingResult>;
 }
 
