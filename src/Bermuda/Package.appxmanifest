@@ -52,6 +52,11 @@
             </com:ExeServer>
           </com:ComServer>
         </com:Extension>
+        <!-- Launch at user sign-in. Enabled="true" turns it on at install; the user can
+             still disable it in Settings > Apps > Startup or Task Manager. -->
+        <desktop:Extension Category="windows.startupTask" Executable="Bermuda.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="BermudaStartup" Enabled="true" DisplayName="Bermuda" />
+        </desktop:Extension>
       </Extensions>
     </Application>
   </Applications>
