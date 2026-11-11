@@ -20,6 +20,10 @@ const string AckType = "bermuda.native.ack";
 var pipe = Environment.GetEnvironmentVariable("FDC3_GRPC_PIPE");
 var channel = Environment.GetEnvironmentVariable("NATIVE_CHANNEL") is { Length: > 0 } c ? c : "fdc3.channel.1";
 
+// One copy per user: Windows starts it at sign-in and Bermuda starts it too; a second copy just exits.
+using var singleInstance = new Mutex(true, @"LocalBermuda.NativeApp." + AppId, out var first);
+if (!first) return;
+
 using var shutdown = new CancellationTokenSource();
 Console.CancelKeyPress += (_, e) => { e.Cancel = true; shutdown.Cancel(); };
 

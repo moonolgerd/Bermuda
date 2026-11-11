@@ -61,8 +61,8 @@
     </Application>
 
     <!-- The sample native FDC3 side app (src/Bermuda.NativeApp): shipped in this package so it installs and
-         updates with Bermuda. A background app, so no Start menu entry; it starts at sign-in like the host and
-         keeps retrying until the host's pipe is up. -->
+         updates with Bermuda. A background app with no Start menu entry and no startup task of its own: Bermuda
+         starts it (App.StartNativeApp) and closes it again on exit. -->
     <Application Id="NativeApp"
                  Executable="Bermuda.NativeApp.exe"
                  EntryPoint="Windows.FullTrustApplication">
@@ -73,11 +73,6 @@
         Square150x150Logo="Assets\Square150x150Logo.png"
         Square44x44Logo="Assets\Square44x44Logo.png"
         AppListEntry="none" />
-      <Extensions>
-        <desktop:Extension Category="windows.startupTask" Executable="Bermuda.NativeApp.exe" EntryPoint="Windows.FullTrustApplication">
-          <desktop:StartupTask TaskId="BermudaNativeAppStartup" Enabled="true" DisplayName="Bermuda Native Incidents" />
-        </desktop:Extension>
-      </Extensions>
     </Application>
   </Applications>
 
