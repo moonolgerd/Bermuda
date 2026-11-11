@@ -114,10 +114,29 @@ const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
 ## Other useful commands
 
 ```powershell
-# Build a self-contained MSIX installer
+# Build a self-contained MSIX installer (needs the winapp CLI: winget install Microsoft.winappcli --source winget)
 dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 # Output: artifacts/msix/
 ```
+
+### Releases and auto-update
+
+Pushing a `v1.2.3.4` tag runs the `publish` job. It attaches the `.msix`, `Bermuda.appinstaller` and `Bermuda.cer` (the public half of the signing certificate) to the GitHub Release, and a `pages` job publishes a landing page, the `.appinstaller` and the `.cer` to GitHub Pages at `https://<owner>.github.io/<repo>/`. The MSIX stays on the release (it is too large for Pages); the `.appinstaller` on Pages always points at the newest one, so that one link installs and updates the app.
+
+One-time setup for Pages:
+
+1. Settings → Pages → Source: **GitHub Actions**.
+2. Settings → Environments → `github-pages` → deployment branches and tags: add the tag rule `v*` (the default only allows `main`, which blocks tag-triggered deploys).
+3. Using a custom domain? Set the `PAGES_BASE_URL` repository variable to its address.
+
+If the certificate is self-signed, each machine must trust it once before installing (admin PowerShell):
+
+```powershell
+Import-Certificate -FilePath .\Bermuda.cer -CertStoreLocation Cert:\LocalMachine\TrustedPeople
+```
+
+The host checks for a newer version on startup (`checkForUpdate` command, `UpdateBanner` in the UI) and installs it on request (`applyUpdate`). Both report `unsupported` unless the app was installed from the `.appinstaller`.
+
 
 ## IPC — Web ↔ Host
 

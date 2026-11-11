@@ -19,6 +19,7 @@ public partial class App : Application
             .AddEnvironmentVariables()
             .Build();
 
+        NotificationService.Initialize();
         var directory = AppDirectory.Load(Path.Combine(AppContext.BaseDirectory, "fdc3-appd.json"));
         var launcher = new WindowAppLauncher(config);
         var fdc3 = new DesktopAgent(directory, launcher);
@@ -26,5 +27,11 @@ public partial class App : Application
 
         var window = new MainWindow(config, fdc3, MainAppId);
         window.Show();
+    }
+
+    protected override void OnExit(ExitEventArgs e)
+    {
+        NotificationService.Clear();
+        base.OnExit(e);
     }
 }

@@ -51,6 +51,20 @@ jobs:
         working-directory: src/Bermuda.Web
         run: pnpm build
 
+      # The MSIX job only packs. `dotnet build` is framework-dependent, so a version tag
+      # also publishes the self-contained win-x64 app and hands that folder across.
+      - name: Publish self-contained app
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: dotnet publish src/Bermuda/Bermuda.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/publish -p:PublishSingleFile=false -p:PublishReadyToRun=false
+
+      - name: Upload self-contained app
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/upload-artifact@v4
+        with:
+          name: bermuda-publish-win-x64
+          path: artifacts/publish
+          retention-days: 1
+
       # fdc3-preload.js is committed (the host builds without Node), so make
       # sure it matches src/Bermuda.Web/src/fdc3.
       - name: Check committed FDC3 preload is up to date
@@ -75,6 +89,9 @@ jobs:
 
       - name: Setup .NET
         uses: actions/setup-dotnet@v4
+        # This runner is a signed-in user account and cannot write to Program Files.
+        env:
+          DOTNET_INSTALL_DIR: ${{ runner.tool_cache }}/dotnet
         with:
           dotnet-version: '10.0.x'
 
@@ -112,6 +129,10 @@ jobs:
     needs: build
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: windows-latest
+    # Repo default token is contents: read. Creating a release and generating its notes
+    # call the releases API, which requires contents: write.
+    permissions:
+      contents: write
 
     steps:
       - uses: actions/checkout@v4
@@ -121,21 +142,11 @@ jobs:
         with:
           dotnet-version: '10.0.x'
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
+      - name: Download self-contained app
+        uses: actions/download-artifact@v4
         with:
-          node-version: '22'
-
-      - name: Enable pnpm
-        run: corepack enable pnpm
-
-      - name: Install frontend deps
-        working-directory: src/Bermuda.Web
-        run: pnpm install --frozen-lockfile
-
-      - name: Build frontend
-        working-directory: src/Bermuda.Web
-        run: pnpm build
+          name: bermuda-publish-win-x64
+          path: artifacts/publish
 
       # Derive MSIX version from tag (strips leading 'v')
       - name: Derive MSIX version
@@ -146,43 +157,124 @@ jobs:
           $version = $tag.TrimStart('v')
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Import signing certificate
+      # Where the landing page, .appinstaller and .cer are served from. Defaults to the repo's
+      # github.io address; set the PAGES_BASE_URL repository variable for a custom domain.
+      - name: Resolve site URL
+        id: site
+        shell: pwsh
+        run: |
+          $base = "${{ vars.PAGES_BASE_URL }}"
+          if (-not $base) { $base = "https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}" }
+          echo "url=$($base.TrimEnd('/'))" >> $env:GITHUB_OUTPUT
+
+      - name: Install winapp CLI
+        shell: pwsh
+        run: |
+          winget install Microsoft.winappcli --source winget --accept-package-agreements --accept-source-agreements
+          # winget updates PATH for new shells only; expose it to the following steps
+          $winapp = (Get-Command winapp -ErrorAction SilentlyContinue)?.Source
+          if (-not $winapp) {
+            $winapp = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Links\winapp.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $winapp) { throw "winapp not found after install" }
+          Split-Path $winapp | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Write signing certificate
         if: env.MSIX_CERT_BASE64 != ''
         env:
           MSIX_CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
-          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
         shell: pwsh
         run: |
-          $bytes = [Convert]::FromBase64String($env:MSIX_CERT_BASE64)
           $pfxPath = Join-Path $env:RUNNER_TEMP "signing.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, $bytes)
-          $cert = Import-PfxCertificate -FilePath $pfxPath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password (ConvertTo-SecureString $env:MSIX_CERT_PASSWORD -AsPlainText -Force)
-          echo "MSIX_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:MSIX_CERT_BASE64))
+          echo "MSIX_CERT_PATH=$pfxPath" >> $env:GITHUB_ENV
 
       - name: Create MSIX
+        env:
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
         shell: pwsh
         run: |
           $args = @(
             "src/Bermuda",
+            # dotnet msbuild does not restore. Packing still loads the project, which needs project.assets.json.
+            "-restore",
             "-t:CreateMsix",
             "-p:Configuration=Release",
-            "-p:MsixVersion=${{ steps.ver.outputs.version }}"
+            "-p:MsixInputDir=${{ github.workspace }}/artifacts/publish",
+            "-p:MsixVersion=${{ steps.ver.outputs.version }}",
+            # The .appinstaller is served from Pages (always the latest release); each MSIX stays at its own tag's release.
+            "-p:MsixUrl=https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bermuda_${{ steps.ver.outputs.version }}_x64.msix",
+            "-p:AppInstallerUrl=${{ steps.site.outputs.url }}/Bermuda.appinstaller"
           )
-          if ($env:MSIX_THUMBPRINT) {
-            $args += "-p:MsixSigningCertThumbprint=$env:MSIX_THUMBPRINT"
+          if ($env:MSIX_CERT_PATH) {
+            $args += "-p:MsixSigningCert=$env:MSIX_CERT_PATH"
+            $args += "-p:MsixSigningCertPassword=$env:MSIX_CERT_PASSWORD"
           }
           dotnet msbuild @args
+
+      # Public half of the signing cert. Users trust it once (Trusted People) before
+      # installing from the .appinstaller; the PFX itself never leaves the secrets.
+      - name: Export public certificate
+        if: env.MSIX_CERT_PATH != ''
+        env:
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
+        shell: pwsh
+        run: |
+          $cert = [System.Security.Cryptography.X509Certificates.X509Certificate2]::new($env:MSIX_CERT_PATH, $env:MSIX_CERT_PASSWORD)
+          [IO.File]::WriteAllBytes("artifacts/msix/Bermuda.cer", $cert.Export('Cert'))
+
+      # Landing page + .appinstaller + .cer. The MSIX is too big for Pages and stays on the release.
+      - name: Assemble site
+        shell: pwsh
+        run: >
+          ./.github/pages/build-site.ps1
+          -OutDir site
+          -SourceDir artifacts/msix
+          -Version "${{ steps.ver.outputs.version }}"
+          -AppInstallerUrl "${{ steps.site.outputs.url }}/Bermuda.appinstaller"
+          -MsixUrl "https://github.com/${{ github.repository }}/releases/download/${{ github.ref_name }}/Bermuda_${{ steps.ver.outputs.version }}_x64.msix"
+          -ReleaseUrl "https://github.com/${{ github.repository }}/releases/tag/${{ github.ref_name }}"
+
+      - name: Upload site artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
 
       - name: Upload MSIX artifact
         uses: actions/upload-artifact@v4
         with:
           name: Bermuda-msix-${{ steps.ver.outputs.version }}
-          path: artifacts/msix/*.msix
+          path: |
+            artifacts/msix/*.msix
+            artifacts/msix/Bermuda.appinstaller
+            artifacts/msix/Bermuda.cer
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          files: artifacts/msix/*.msix
+          files: |
+            artifacts/msix/*.msix
+            artifacts/msix/Bermuda.appinstaller
+            artifacts/msix/Bermuda.cer
           generate_release_notes: true
+
+  # ─── GitHub Pages (landing page, .appinstaller, .cer) ─────────────────────
+  # Needs Pages enabled with "GitHub Actions" as the source, and the github-pages
+  # environment must allow deployments from v* tags (Settings → Environments).
+  pages:
+    name: Deploy site to GitHub Pages
+    needs: publish
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    concurrency:
+      group: pages
+      cancel-in-progress: false
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy
+        id: deployment
+        uses: actions/deploy-pages@v4

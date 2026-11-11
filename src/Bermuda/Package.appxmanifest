@@ -3,7 +3,9 @@
   xmlns="http://schemas.microsoft.com/appx/manifest/foundation/windows10"
   xmlns:uap="http://schemas.microsoft.com/appx/manifest/uap/windows10"
   xmlns:rescap="http://schemas.microsoft.com/appx/manifest/foundation/windows10/restrictedcapabilities"
-  IgnorableNamespaces="rescap">
+  xmlns:desktop="http://schemas.microsoft.com/appx/manifest/desktop/windows10"
+  xmlns:com="http://schemas.microsoft.com/appx/manifest/com/windows10"
+  IgnorableNamespaces="rescap desktop com">
 
   <Identity
     Name="com.bermuda.app"
@@ -38,6 +40,24 @@
         <uap:DefaultTile Wide310x150Logo="Assets\Wide310x150Logo.png" />
         <uap:SplashScreen Image="Assets\SplashScreen.png" />
       </uap:VisualElements>
+      <!-- Lets clicks on toasts and their buttons reach the running app (NotificationService.Initialize). -->
+      <Extensions>
+        <desktop:Extension Category="windows.toastNotificationActivation">
+          <desktop:ToastNotificationActivation ToastActivatorCLSID="6b4f6d0e-3f0c-4a5e-9d71-2c8e5b1a7f43" />
+        </desktop:Extension>
+        <com:Extension Category="windows.comServer">
+          <com:ComServer>
+            <com:ExeServer Executable="Bermuda.exe" DisplayName="Bermuda toast activator" Arguments="----AppNotificationActivated:">
+              <com:Class Id="6b4f6d0e-3f0c-4a5e-9d71-2c8e5b1a7f43" DisplayName="Bermuda toast activator" />
+            </com:ExeServer>
+          </com:ComServer>
+        </com:Extension>
+        <!-- Launch at user sign-in. Enabled="true" turns it on at install; the user can
+             still disable it in Settings > Apps > Startup or Task Manager. -->
+        <desktop:Extension Category="windows.startupTask" Executable="Bermuda.exe" EntryPoint="Windows.FullTrustApplication">
+          <desktop:StartupTask TaskId="BermudaStartup" Enabled="true" DisplayName="Bermuda" />
+        </desktop:Extension>
+      </Extensions>
     </Application>
   </Applications>
 

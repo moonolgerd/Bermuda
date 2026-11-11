@@ -1,6 +1,7 @@
 ﻿using System.IO;
 using System.Runtime.InteropServices;
 using System.Text.Json;
+using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
@@ -20,7 +21,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     // camelCase out and case-insensitive in, so every message in both
     // directions goes through it — without it nothing in { id, command }
     // binds to IpcRequest and every command is rejected as unknown.
-    private static readonly JsonSerializerOptions HostJson = JsonSerializerOptions.Web;
+    private static readonly JsonSerializerOptions HostJson = HostBridge.PayloadJson;
 
     // Every window shares one WebView2 environment (and so one browser
     // process) — a second CreateAsync on the same user data folder would have
@@ -33,6 +34,16 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     private readonly string? _fdc3LaunchInstanceId;
     private readonly string _webUrl;
     private readonly int _cdpPort;
+    private readonly bool _clientTitleBar;
+
+    // Resize border width and caption strip height used in client title bar mode.
+    private const double ClientResizeBorder = 3;
+    private const double ClientCaptionHeight = 40;
+
+    // Left/right/bottom: keep a strip of the WPF window uncovered so the invisible resize
+    // border stays reachable (the WebView2 HWND would otherwise swallow the mouse). Top is 0:
+    // the caption strip itself is that border.
+    private static readonly Thickness ClientNormalMargin = new(ClientResizeBorder, 0, ClientResizeBorder, ClientResizeBorder);
 
     // This window's FDC3 app instance. Connected on the first navigation (as
     // the launcher-assigned instance, if FDC3 opened this window); every later
@@ -54,13 +65,30 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         _fdc3 = fdc3;
         _fdc3AppId = fdc3AppId;
         _fdc3LaunchInstanceId = fdc3InstanceId;
-        _bridge = new HostBridge(() => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."));
         _webUrl = url ?? configuration["WEB_URL"] ?? "http://localhost:5555";
         _cdpPort = configuration.GetValue("CDP_PORT", 0);
+        // A remote debugging port already means "dev/test run"; test-only commands ride on that.
+        _bridge = new HostBridge(
+            () => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."),
+            testHooks: _cdpPort > 0);
+
+        // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native
+        // keeps the standard Windows caption. Read once at startup — the web app asks the
+        // host which mode is active (IWindowController.UsesClientTitleBar) and only renders
+        // its own title bar in client mode.
+        _clientTitleBar = !string.Equals(configuration["TITLE_BAR"], "native", StringComparison.OrdinalIgnoreCase);
+        if (_clientTitleBar)
+            ApplyClientTitleBar();
+
         Loaded += OnLoaded;
+        StateChanged += OnStateChanged;
+
+        // A toast (or one of its buttons) was clicked: surface the window and tell the web app.
+        NotificationService.Activated += OnNotificationActivated;
         Closed += (_, _) =>
         {
             _closed = true;
+            NotificationService.Activated -= OnNotificationActivated;
             _fdc3Connection?.Dispose();
             _fdc3Connection = null;
             // With several windows open the app (and browser process) outlives
@@ -69,6 +97,17 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
             _webView.Dispose();
         };
     }
+
+    // Only the app's main window reacts to toast clicks (every window is subscribed to the static event).
+    private void OnNotificationActivated(NotificationActivation activation) => Dispatcher.Invoke(() =>
+    {
+        if (_closed || Application.Current.MainWindow != this) return;
+
+        ShowWindow();
+        Activate();
+        if (_webView.CoreWebView2 is not null)
+            PushEvent(activation);
+    });
 
     private Task<CoreWebView2Environment> GetEnvironmentAsync()
     {
@@ -80,6 +119,46 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         return _environment = CoreWebView2Environment.CreateAsync(options: options);
     }
 
+    // Client title bar mode: no native title text/icon, but Windows still draws the real
+    // minimize/maximize/close buttons (UseAeroCaptionButtons) — which is what gives the
+    // Windows 11 Snap Layouts flyout on the maximize button. The caption strip is host-owned
+    // and the WebView2 starts below it: WebView2's child window answers hit-tests itself, so
+    // the buttons must not sit underneath it. Dragging, double-click-to-maximize and the
+    // system menu all come from the strip being the window's caption.
+    private void ApplyClientTitleBar()
+    {
+        WindowChrome.SetWindowChrome(this, new WindowChrome
+        {
+            CaptionHeight = ClientCaptionHeight,
+            ResizeBorderThickness = new Thickness(ClientResizeBorder),
+            GlassFrameThickness = new Thickness(0, ClientCaptionHeight, 0, 0),
+            UseAeroCaptionButtons = true,
+            CornerRadius = new CornerRadius(0),
+        });
+        // Transparent so the glass strip (and the caption buttons Windows draws in it) show
+        // through; DWMWA_CAPTION_COLOR (set in OnLoaded) gives the strip its colour.
+        Background = System.Windows.Media.Brushes.Transparent;
+        _fill.Margin = new Thickness(0, ClientCaptionHeight, 0, 0);
+        _fill.Visibility = Visibility.Visible;
+        _root.Margin = ClientNormalMargin;
+        _webView.Margin = new Thickness(0, ClientCaptionHeight, 0, 0);
+    }
+
+    // A maximized WindowChrome window overhangs the screen by its resize border; inset the
+    // content by the same amount so the caption strip and buttons aren't clipped.
+    private void OnStateChanged(object? sender, EventArgs e)
+    {
+        if (!_clientTitleBar) return;
+
+        _root.Margin = WindowState == System.Windows.WindowState.Maximized
+            ? new Thickness(
+                SystemParameters.WindowResizeBorderThickness.Left + SystemParameters.FixedFrameVerticalBorderWidth,
+                SystemParameters.WindowResizeBorderThickness.Top + SystemParameters.FixedFrameHorizontalBorderHeight,
+                SystemParameters.WindowResizeBorderThickness.Right + SystemParameters.FixedFrameVerticalBorderWidth,
+                SystemParameters.WindowResizeBorderThickness.Bottom + SystemParameters.FixedFrameHorizontalBorderHeight)
+            : ClientNormalMargin;
+    }
+
     [DllImport("dwmapi.dll", PreserveSig = true)]
     private static extern int DwmSetWindowAttribute(IntPtr hwnd, uint attr, ref int attrValue, int attrSize);
 
@@ -89,6 +168,19 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         var hwnd = new WindowInteropHelper(this).Handle;
         int dark = 1;
         DwmSetWindowAttribute(hwnd, 20 /* DWMWA_USE_IMMERSIVE_DARK_MODE */, ref dark, sizeof(int));
+
+        if (_clientTitleBar)
+        {
+            // WindowChrome with no caption drops the system's default rounding; ask DWM
+            // for rounded corners explicitly (Windows 11+, ignored on Windows 10).
+            int captionColor = 0x002d2d2d; // COLORREF (0x00BBGGRR), matches the page background
+            DwmSetWindowAttribute(hwnd, 35 /* DWMWA_CAPTION_COLOR */, ref captionColor, sizeof(int));
+            int noBackdrop = 1; // DWMSBT_NONE
+            DwmSetWindowAttribute(hwnd, 38 /* DWMWA_SYSTEMBACKDROP_TYPE */, ref noBackdrop, sizeof(int));
+
+            int round = 2; // DWMWCP_ROUND
+            DwmSetWindowAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, ref round, sizeof(int));
+        }
 
         await _webView.EnsureCoreWebView2Async(await GetEnvironmentAsync());
         if (_closed) return;
@@ -179,6 +271,8 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     }
 
     // IWindowController -------------------------------------------------------
+
+    public bool UsesClientTitleBar => _clientTitleBar;
 
     public bool IsMaximized => base.WindowState == System.Windows.WindowState.Maximized;
     public bool IsMinimized => base.WindowState == System.Windows.WindowState.Minimized;
@@ -326,8 +420,8 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         });
     }
 
-    [DllImport("user32.dll")]
-    private static extern bool NativeIsWindowForeground(IntPtr hwnd);
+    [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
+    private static extern IntPtr NativeGetForegroundWindow();
 
     private IntPtr _nativeHandle;
 
@@ -347,6 +441,6 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
 
     private bool IsWindowForeground()
     {
-        return NativeWindowHandle != IntPtr.Zero && NativeIsWindowForeground(NativeWindowHandle);
+        return NativeWindowHandle != IntPtr.Zero && NativeGetForegroundWindow() == NativeWindowHandle;
     }
 }

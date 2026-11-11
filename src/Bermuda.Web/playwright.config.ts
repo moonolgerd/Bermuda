@@ -3,7 +3,8 @@ import { defineConfig } from '@playwright/test'
 export default defineConfig({
   testDir: './e2e',
   fullyParallel: false,
-  // Every spec drives the same live WebView2 window, so files can't run side by side.
+  // Every test drives the same live app window (CDP), so tests must not overlap —
+  // the host-api specs move, minimize and resize it.
   workers: 1,
   retries: 0,
   use: {

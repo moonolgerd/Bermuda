@@ -1,15 +1,38 @@
 .layout {
   display: flex;
   gap: 1.5rem;
-  align-items: flex-start;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 
 .tableSection {
   flex: 1;
   min-width: 0;
+  overflow: auto;
 }
 
 .mapSection {
-  width: 420px;
-  flex-shrink: 0;
+  flex: 0 0 40%;
+  min-width: 420px;
+  display: flex;
+}
+
+/* Too narrow for two columns (the map alone needs 420px): stack them and let the page scroll. */
+@media (max-width: 900px) {
+  .layout {
+    flex: none;
+    flex-direction: column;
+  }
+
+  .tableSection {
+    flex: none;
+    overflow-y: visible;
+  }
+
+  .mapSection {
+    flex: none;
+    min-width: 0;
+    height: 24rem;
+  }
 }

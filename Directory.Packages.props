@@ -9,8 +9,8 @@
     <PackageVersion Include="Microsoft.Web.WebView2" Version="1.0.3240.44" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
-    <PackageVersion Include="Microsoft.Windows.SDK.BuildTools" Version="10.0.26100.1742" />
     <PackageVersion Include="WPF-UI" Version="4.2.0" />
+    <PackageVersion Include="Microsoft.WindowsAppSDK.Foundation" Version="2.6.5" />
 
     <!-- src/Bermuda.Api -->
     <PackageVersion Include="HotChocolate.AspNetCore" Version="16.6.1" />

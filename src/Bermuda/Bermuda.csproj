@@ -2,35 +2,45 @@
 
   <PropertyGroup>
     <OutputType>WinExe</OutputType>
-    <TargetFramework>net10.0-windows</TargetFramework>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
+    <!-- Unpackaged runs (dev, e2e) load the Windows App SDK from the app folder instead of needing a framework package. -->
+    <WindowsPackageType>None</WindowsPackageType>
+    <!-- The SDK picks its native payload by RID. Keep the output path unchanged so existing tooling finds bin/Debug/<tfm>/Bermuda.exe. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
     <AssemblyName>Bermuda</AssemblyName>
     <RootNamespace>Bermuda</RootNamespace>
     <RuntimeIdentifiers>win-x64;win-x86;win-arm64</RuntimeIdentifiers>
     <!--
       MSIX packaging — override at the command line:
         dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release -p:MsixVersion=1.2.3.0
-      To sign, also pass:
-        -p:MsixSigningCertThumbprint=<thumbprint>
+      To sign, also pass a PFX (and its password if not the winapp default):
+        -p:MsixSigningCert=<path\to\cert.pfx> -p:MsixSigningCertPassword=<password>
+      Requires the winapp CLI: winget install Microsoft.winappcli
+      To also emit an .appinstaller (auto-update source) next to the MSIX, pass both URLs:
+        -p:MsixUrl=<where the .msix will be hosted> -p:AppInstallerUrl=<where the .appinstaller will be hosted>
+      To pack a folder already published self-contained for win-x64, pass it and the publish step is skipped:
+        -p:MsixInputDir=<publish output>
     -->
     <ApplicationIcon>Assets\app.ico</ApplicationIcon>
     <MsixVersion Condition="'$(MsixVersion)' == ''">1.0.0.0</MsixVersion>
     <MsixOutputDir Condition="'$(MsixOutputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\msix\</MsixOutputDir>
-    <MsixSigningCertThumbprint Condition="'$(MsixSigningCertThumbprint)' == ''" />
+    <MsixSigningCert Condition="'$(MsixSigningCert)' == ''" />
+    <MsixSigningCertPassword Condition="'$(MsixSigningCertPassword)' == ''" />
+    <MsixUrl Condition="'$(MsixUrl)' == ''" />
+    <AppInstallerUrl Condition="'$(AppInstallerUrl)' == ''" />
+    <MsixInputDir Condition="'$(MsixInputDir)' == ''" />
   </PropertyGroup>
 
   <ItemGroup>
     <PackageReference Include="Microsoft.Web.WebView2" />
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
-    <!--
-      Provides MakeAppx.exe and SignTool.exe for the CreateMsix target.
-      GeneratePathProperty exposes $(PkgMicrosoft_Windows_SDK_BuildTools).
-    -->
-    <PackageReference Include="Microsoft.Windows.SDK.BuildTools" PrivateAssets="all" GeneratePathProperty="true" />
     <PackageReference Include="WPF-UI" />
+    <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" />
   </ItemGroup>
 
   <ItemGroup>
@@ -79,6 +89,8 @@
 
   <ItemGroup>
     <Resource Include="Assets\app.ico" />
+    <!-- Also next to the exe: AppNotificationManager.Register reads the icon from disk for unpackaged runs. -->
+    <Content Include="Assets\app.ico" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -102,28 +114,26 @@
   <!--
     CreateMsix target
     =================
-    1. dotnet publish → self-contained win-x64 output
+    1. dotnet publish → self-contained win-x64 output, unless MsixInputDir is already that output
     2. Stage published files + AppxManifest.xml + Assets/
-    3. MakeAppx pack → Bermuda_<version>_x64.msix
-    4. (optional) SignTool sign
+    3. winapp pack → Bermuda_<version>_x64.msix (signed when MsixSigningCert is set)
 
     Usage:
       dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
   -->
   <Target Name="CreateMsix">
 
-    <Error Condition="!Exists('$(PkgMicrosoft_Windows_SDK_BuildTools)')" Text="Microsoft.Windows.SDK.BuildTools not found — run 'dotnet restore src/Bermuda' first." />
-
     <PropertyGroup>
-      <_PublishDir>$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
+      <_PublishDir Condition="'$(MsixInputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
+      <_PublishDir Condition="'$(MsixInputDir)' != ''">$([MSBuild]::EnsureTrailingSlash('$(MsixInputDir)'))</_PublishDir>
       <_StagingDir>$(MSBuildProjectDirectory)\..\..\artifacts\msix-staging\</_StagingDir>
       <_MsixPath>$(MsixOutputDir)Bermuda_$(MsixVersion)_x64.msix</_MsixPath>
-      <_MakeAppxExe>$(PkgMicrosoft_Windows_SDK_BuildTools)\bin\10.0.26100.0\x64\makeappx.exe</_MakeAppxExe>
-      <_SignToolExe Condition="'$(MsixSigningCertThumbprint)' != ''">$(PkgMicrosoft_Windows_SDK_BuildTools)\bin\10.0.26100.0\x64\signtool.exe</_SignToolExe>
     </PropertyGroup>
 
-    <!-- 1. Publish self-contained win-x64 -->
-    <MSBuild Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
+    <Error Condition="'$(MsixInputDir)' != '' and !Exists('$(MsixInputDir)')" Text="MsixInputDir '$(MsixInputDir)' does not exist. Publish the self-contained win-x64 app first." />
+
+    <!-- 1. Publish self-contained win-x64, unless the caller already did. -->
+    <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="$(MSBuildProjectFile)" Targets="Publish" Properties="Configuration=$(Configuration);&#xD;&#xA;                         RuntimeIdentifier=win-x64;&#xD;&#xA;                         SelfContained=true;&#xD;&#xA;                         PublishDir=$(_PublishDir);&#xD;&#xA;                         PublishSingleFile=false;&#xD;&#xA;                         PublishReadyToRun=false" />
 
     <!-- 2. Prepare a clean staging directory -->
     <RemoveDir Directories="$(_StagingDir)" />
@@ -135,8 +145,15 @@
     </ItemGroup>
     <Copy SourceFiles="@(_PublishedFiles)" DestinationFolder="$(_StagingDir)%(RecursiveDir)" SkipUnchangedFiles="false" />
 
-    <!-- 4. Copy manifest — MakeAppx requires the name AppxManifest.xml -->
-    <Copy SourceFiles="$(MSBuildProjectDirectory)\Package.appxmanifest" DestinationFiles="$(_StagingDir)AppxManifest.xml" />
+    <!-- 4. Stage the manifest — winapp finds it in the input folder as appxmanifest.xml.
+         The Identity Version is stamped from MsixVersion: Windows compares that value, not the
+         file name, to decide whether an .appinstaller update is newer. -->
+    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(MsixVersion)', '^\d+\.\d+\.\d+\.\d+$'))" Text="MsixVersion must have four parts (e.g. 1.2.3.0), got '$(MsixVersion)'." />
+    <PropertyGroup>
+      <_ManifestText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Package.appxmanifest'))</_ManifestText>
+      <_ManifestText>$([System.Text.RegularExpressions.Regex]::Replace('$(_ManifestText)', '(?s)(&lt;Identity[^&gt;]*?Version=")[^"]*(")', '${1}$(MsixVersion)${2}'))</_ManifestText>
+    </PropertyGroup>
+    <WriteLinesToFile File="$(_StagingDir)appxmanifest.xml" Lines="$(_ManifestText)" Overwrite="true" />
 
     <!-- 5. Copy asset images -->
     <ItemGroup>
@@ -144,11 +161,25 @@
     </ItemGroup>
     <Copy SourceFiles="@(_AssetFiles)" DestinationFolder="$(_StagingDir)Assets\%(RecursiveDir)" SkipUnchangedFiles="false" />
 
-    <!-- 6. Pack the MSIX -->
-    <Exec Command="&quot;$(_MakeAppxExe)&quot; pack /d &quot;$(_StagingDir.TrimEnd('\'))&quot; /p &quot;$(_MsixPath)&quot; /o /nv" WorkingDirectory="$(MSBuildProjectDirectory)" />
+    <!-- 6. Pack (and optionally sign) with the winapp CLI. skip-pri keeps the package
+         layout identical to the previous makeappx output. -->
+    <PropertyGroup>
+      <_WinappSignArgs Condition="'$(MsixSigningCert)' != ''">--cert &quot;$(MsixSigningCert)&quot;</_WinappSignArgs>
+      <_WinappSignArgs Condition="'$(MsixSigningCert)' != '' and '$(MsixSigningCertPassword)' != ''">$(_WinappSignArgs) --cert-password &quot;$(MsixSigningCertPassword)&quot;</_WinappSignArgs>
+      <_WinappSignArgs Condition="'$(MsixSigningCert)' == ''">--no-sign</_WinappSignArgs>
+    </PropertyGroup>
+    <Exec Command="winapp pack &quot;$(_StagingDir.TrimEnd('\'))&quot; --manifest &quot;$(_StagingDir)appxmanifest.xml&quot; --output &quot;$(_MsixPath)&quot; --skip-pri $(_WinappSignArgs)" WorkingDirectory="$(MSBuildProjectDirectory)" />
 
-    <!-- 7. Optionally sign -->
-    <Exec Condition="'$(MsixSigningCertThumbprint)' != ''" Command="&quot;$(_SignToolExe)&quot; sign /sha1 $(MsixSigningCertThumbprint) /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 &quot;$(_MsixPath)&quot;" />
+    <!-- 7. Optionally write the .appinstaller that points installed copies at this MSIX -->
+    <PropertyGroup Condition="'$(AppInstallerUrl)' != ''">
+      <_AppInstallerPath>$(MsixOutputDir)Bermuda.appinstaller</_AppInstallerPath>
+      <_IdentityName>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', 'Name="([^"]*)"').Groups[1].Value)</_IdentityName>
+      <_IdentityPublisher>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', 'Publisher="([^"]*)"').Groups[1].Value)</_IdentityPublisher>
+      <_AppInstallerText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Bermuda.appinstaller.template'))</_AppInstallerText>
+      <_AppInstallerText>$(_AppInstallerText.Replace('@VERSION@', '$(MsixVersion)').Replace('@NAME@', '$(_IdentityName)').Replace('@PUBLISHER@', '$(_IdentityPublisher)').Replace('@MSIX_URL@', '$(MsixUrl)').Replace('@APPINSTALLER_URL@', '$(AppInstallerUrl)'))</_AppInstallerText>
+    </PropertyGroup>
+    <Error Condition="'$(AppInstallerUrl)' != '' and '$(MsixUrl)' == ''" Text="AppInstallerUrl needs MsixUrl as well." />
+    <WriteLinesToFile Condition="'$(AppInstallerUrl)' != ''" File="$(_AppInstallerPath)" Lines="$(_AppInstallerText)" Overwrite="true" />
 
     <Message Text="&#xA;MSIX: $(_MsixPath)&#xA;" Importance="high" />
 

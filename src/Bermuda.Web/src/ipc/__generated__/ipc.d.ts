@@ -5,14 +5,14 @@
 // </auto-generated>
 
 export interface Fdc3AddContextListenerRequest {
-    channelId: string | null;
-    contextType: string | null;
+    channelId?: string | null;
+    contextType?: string | null;
     listenerId: string;
 }
 
 export interface Fdc3AddEventListenerRequest {
-    channelId: string | null;
-    eventType: string | null;
+    channelId?: string | null;
+    eventType?: string | null;
     listenerId: string;
 }
 
@@ -30,7 +30,7 @@ export interface Fdc3ApiEvent {
 
 export interface Fdc3AppIdentifier {
     appId: string;
-    instanceId: string | null;
+    instanceId?: string | null;
 }
 
 export interface Fdc3AppIntent {
@@ -40,17 +40,17 @@ export interface Fdc3AppIntent {
 
 export interface Fdc3AppMetadata {
     appId: string;
-    description: string | null;
-    instanceId: string | null;
-    name: string | null;
-    resultType: string | null;
-    title: string | null;
-    tooltip: string | null;
-    version: string | null;
+    description?: string | null;
+    instanceId?: string | null;
+    name?: string | null;
+    resultType?: string | null;
+    title?: string | null;
+    tooltip?: string | null;
+    version?: string | null;
 }
 
 export interface Fdc3BroadcastRequest {
-    channelId: string | null;
+    channelId?: string | null;
     context: unknown;
 }
 
@@ -59,7 +59,7 @@ export interface Fdc3ChannelIdRequest {
 }
 
 export interface Fdc3ChannelInfo {
-    displayMetadata: Fdc3DisplayMetadata | null;
+    displayMetadata?: Fdc3DisplayMetadata | null;
     id: string;
     type: string;
 }
@@ -67,30 +67,30 @@ export interface Fdc3ChannelInfo {
 export interface Fdc3ContextEvent {
     context: unknown;
     listenerId: string;
-    source: Fdc3AppIdentifier | null;
+    source?: Fdc3AppIdentifier | null;
     type: string;
 }
 
 export interface Fdc3DisplayMetadata {
-    color: string | null;
-    glyph: string | null;
-    name: string | null;
+    color?: string | null;
+    glyph?: string | null;
+    name?: string | null;
 }
 
 export interface Fdc3FindIntentRequest {
-    context: unknown | null;
+    context?: unknown | null;
     intent: string;
-    resultType: string | null;
+    resultType?: string | null;
 }
 
 export interface Fdc3FindIntentsByContextRequest {
     context: unknown;
-    resultType: string | null;
+    resultType?: string | null;
 }
 
 export interface Fdc3GetCurrentContextRequest {
     channelId: string;
-    contextType: string | null;
+    contextType?: string | null;
 }
 
 export interface Fdc3ImplementationMetadata {
@@ -98,7 +98,7 @@ export interface Fdc3ImplementationMetadata {
     fdc3Version: string;
     optionalFeatures: Fdc3OptionalFeatures;
     provider: string;
-    providerVersion: string | null;
+    providerVersion?: string | null;
 }
 
 export interface Fdc3IntentEvent {
@@ -106,12 +106,12 @@ export interface Fdc3IntentEvent {
     intent: string;
     listenerId: string;
     resultId: string;
-    source: Fdc3AppIdentifier | null;
+    source?: Fdc3AppIdentifier | null;
     type: string;
 }
 
 export interface Fdc3IntentMetadata {
-    displayName: string | null;
+    displayName?: string | null;
     name: string;
 }
 
@@ -122,8 +122,8 @@ export interface Fdc3IntentResolutionInfo {
 }
 
 export interface Fdc3IntentResultInfo {
-    channel: Fdc3ChannelInfo | null;
-    context: unknown | null;
+    channel?: Fdc3ChannelInfo | null;
+    context?: unknown | null;
 }
 
 export interface Fdc3ListenerIdRequest {
@@ -132,7 +132,7 @@ export interface Fdc3ListenerIdRequest {
 
 export interface Fdc3OpenRequest {
     app: Fdc3AppIdentifier;
-    context: unknown | null;
+    context?: unknown | null;
 }
 
 export interface Fdc3OptionalFeatures {
@@ -142,12 +142,12 @@ export interface Fdc3OptionalFeatures {
 }
 
 export interface Fdc3RaiseIntentForContextRequest {
-    app: Fdc3AppIdentifier | null;
+    app?: Fdc3AppIdentifier | null;
     context: unknown;
 }
 
 export interface Fdc3RaiseIntentRequest {
-    app: Fdc3AppIdentifier | null;
+    app?: Fdc3AppIdentifier | null;
     context: unknown;
     intent: string;
 }
@@ -157,9 +157,9 @@ export interface Fdc3ResultIdRequest {
 }
 
 export interface Fdc3SendIntentResultRequest {
-    channelId: string | null;
-    context: unknown | null;
-    error: string | null;
+    channelId?: string | null;
+    context?: unknown | null;
+    error?: string | null;
     resultId: string;
 }
 
@@ -174,8 +174,64 @@ export interface IpcRequest {
     payload: unknown | null;
 }
 
+export interface NotificationActivation {
+    action: string;
+    notificationId: string;
+    reply?: string | null;
+    type: string;
+}
+
+export interface NotificationButton {
+    icon?: string | null;
+    id: string;
+    label: string;
+}
+
 export interface PingResult {
     pong: boolean;
+}
+
+export interface ShowNotificationRequest {
+    attribution?: string | null;
+    body: string;
+    buttons?: ReadonlyArray<NotificationButton> | null;
+    circleIcon?: boolean | null;
+    expiresInSeconds?: number | null;
+    heroImage?: string | null;
+    icon?: string | null;
+    id?: string | null;
+    image?: string | null;
+    priority?: NotificationPriority | null;
+    replyPlaceholder?: string | null;
+    silent?: boolean | null;
+    title: string;
+}
+
+export interface ShowNotificationResult {
+    message: string;
+    shown: boolean;
+}
+
+export interface SimulateNotificationActivationRequest {
+    action?: string | null;
+    notificationId: string;
+    reply?: string | null;
+}
+
+export interface SimulateNotificationActivationResult {
+    delivered: boolean;
+    message: string;
+}
+
+export interface UpdateApplyResult {
+    message: string;
+    started: boolean;
+}
+
+export interface UpdateCheckResult {
+    currentVersion: string;
+    message: string;
+    status: UpdateStatus;
 }
 
 export interface WindowBounds {
@@ -192,9 +248,14 @@ export interface WindowStateSnapshot {
     isMinimized: boolean;
 }
 
+export type NotificationPriority = 'normal' | 'high' | 'urgent';
+
 export type TaskbarProgressState = 'none' | 'indeterminate' | 'normal' | 'error' | 'paused';
 
+export type UpdateStatus = 'unsupported' | 'none' | 'available' | 'required' | 'unknown' | 'error';
+
 export interface WindowControllerHostObject {
+  readonly UsesClientTitleBar: Promise<boolean>;
   readonly IsMaximized: Promise<boolean>;
   readonly IsMinimized: Promise<boolean>;
   readonly IsFocused: Promise<boolean>;
@@ -219,7 +280,11 @@ export interface WindowControllerHostObject {
 
 export interface IpcMethods {
   invoke: <T>(command: string) => Promise<T>;
+  applyUpdate: () => Promise<UpdateApplyResult>;
+  checkForUpdate: () => Promise<UpdateCheckResult>;
   ping: () => Promise<PingResult>;
+  showNotification: (payload: ShowNotificationRequest, ) => Promise<ShowNotificationResult>;
+  simulateNotificationActivation: (payload: SimulateNotificationActivationRequest, ) => Promise<SimulateNotificationActivationResult>;
   fdc3: {
     addContextListener: (payload: Fdc3AddContextListenerRequest, ) => Promise<void>;
     addEventListener: (payload: Fdc3AddEventListenerRequest, ) => Promise<void>;
