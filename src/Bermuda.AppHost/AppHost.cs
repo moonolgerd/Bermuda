@@ -30,8 +30,10 @@ foreach (var app in JsonDocument.Parse(File.ReadAllText(appDirectory), new JsonD
         || !app.TryGetProperty("details", out var details)
         || !details.TryGetProperty("project", out var project)) continue;
 
-    builder.AddProject(app.GetProperty("appId").GetString()!, Path.GetFullPath(Path.Combine(Path.GetDirectoryName(appDirectory)!, project.GetString()!)))
+#pragma warning disable ASPIRECSHARPAPPS001 // AddCSharpApp is Aspire's new file/path-based project API (experimental)
+    builder.AddCSharpApp(app.GetProperty("appId").GetString()!, Path.GetFullPath(Path.Combine(Path.GetDirectoryName(appDirectory)!, project.GetString()!)))
         .WaitFor(host);
+#pragma warning restore ASPIRECSHARPAPPS001
 }
 
 builder.Build().Run();
