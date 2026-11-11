@@ -96,7 +96,13 @@ dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 
 ### Releases and auto-update
 
-Pushing a `v1.2.3.4` tag runs the `publish` job, which attaches three files to the GitHub Release: the `.msix`, `Bermuda.appinstaller` and `Bermuda.cer` (the public half of the signing certificate). The `.appinstaller` is always served from `releases/latest/download/`, so one link installs and updates the app.
+Pushing a `v1.2.3.4` tag runs the `publish` job. It attaches the `.msix`, `Bermuda.appinstaller` and `Bermuda.cer` (the public half of the signing certificate) to the GitHub Release, and a `pages` job publishes a landing page, the `.appinstaller` and the `.cer` to GitHub Pages at `https://<owner>.github.io/<repo>/`. The MSIX stays on the release (it is too large for Pages); the `.appinstaller` on Pages always points at the newest one, so that one link installs and updates the app.
+
+One-time setup for Pages:
+
+1. Settings → Pages → Source: **GitHub Actions**.
+2. Settings → Environments → `github-pages` → deployment branches and tags: add the tag rule `v*` (the default only allows `main`, which blocks tag-triggered deploys).
+3. Using a custom domain? Set the `PAGES_BASE_URL` repository variable to its address.
 
 If the certificate is self-signed, each machine must trust it once before installing (admin PowerShell):
 
