@@ -89,7 +89,7 @@ pnpm e2e:ui       # open Playwright UI mode
 ## Other useful commands
 
 ```powershell
-# Build a self-contained MSIX installer
+# Build a self-contained MSIX installer (needs the winapp CLI: winget install Microsoft.winappcli --source winget)
 dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 # Output: artifacts/msix/
 ```

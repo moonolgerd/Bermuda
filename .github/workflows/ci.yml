@@ -138,22 +138,31 @@ jobs:
           $version = $tag.TrimStart('v')
           echo "version=$version" >> $env:GITHUB_OUTPUT
 
-      - name: Import signing certificate
+      - name: Install winapp CLI
+        shell: pwsh
+        run: |
+          winget install Microsoft.winappcli --source winget --accept-package-agreements --accept-source-agreements
+          # winget updates PATH for new shells only; expose it to the following steps
+          $winapp = (Get-Command winapp -ErrorAction SilentlyContinue)?.Source
+          if (-not $winapp) {
+            $winapp = Get-ChildItem "$env:LOCALAPPDATA\Microsoft\WinGet\Links\winapp.exe" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          }
+          if (-not $winapp) { throw "winapp not found after install" }
+          Split-Path $winapp | Out-File -Append -Encoding utf8 $env:GITHUB_PATH
+
+      - name: Write signing certificate
         if: env.MSIX_CERT_BASE64 != ''
         env:
           MSIX_CERT_BASE64: ${{ secrets.MSIX_CERT_BASE64 }}
-          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
         shell: pwsh
         run: |
-          $bytes = [Convert]::FromBase64String($env:MSIX_CERT_BASE64)
           $pfxPath = Join-Path $env:RUNNER_TEMP "signing.pfx"
-          [IO.File]::WriteAllBytes($pfxPath, $bytes)
-          $cert = Import-PfxCertificate -FilePath $pfxPath `
-            -CertStoreLocation Cert:\CurrentUser\My `
-            -Password (ConvertTo-SecureString $env:MSIX_CERT_PASSWORD -AsPlainText -Force)
-          echo "MSIX_THUMBPRINT=$($cert.Thumbprint)" >> $env:GITHUB_ENV
+          [IO.File]::WriteAllBytes($pfxPath, [Convert]::FromBase64String($env:MSIX_CERT_BASE64))
+          echo "MSIX_CERT_PATH=$pfxPath" >> $env:GITHUB_ENV
 
       - name: Create MSIX
+        env:
+          MSIX_CERT_PASSWORD: ${{ secrets.MSIX_CERT_PASSWORD }}
         shell: pwsh
         run: |
           $args = @(
@@ -162,8 +171,9 @@ jobs:
             "-p:Configuration=Release",
             "-p:MsixVersion=${{ steps.ver.outputs.version }}"
           )
-          if ($env:MSIX_THUMBPRINT) {
-            $args += "-p:MsixSigningCertThumbprint=$env:MSIX_THUMBPRINT"
+          if ($env:MSIX_CERT_PATH) {
+            $args += "-p:MsixSigningCert=$env:MSIX_CERT_PATH"
+            $args += "-p:MsixSigningCertPassword=$env:MSIX_CERT_PASSWORD"
           }
           dotnet msbuild @args
 
