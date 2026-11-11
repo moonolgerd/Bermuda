@@ -177,6 +177,9 @@ jobs:
         run: |
           $args = @(
             "src/Bermuda",
+            # dotnet msbuild does not restore. A clean runner has no project.assets.json,
+            # and the CreateMsix publish fails with NETSDK1004 without this.
+            "-restore",
             "-t:CreateMsix",
             "-p:Configuration=Release",
             "-p:MsixVersion=${{ steps.ver.outputs.version }}",
