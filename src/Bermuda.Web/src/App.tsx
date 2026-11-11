@@ -1,4 +1,6 @@
 import { Suspense, useEffect } from 'react'
+import { ChannelPicker } from './components/ChannelPicker'
+import { OpenWindows } from './components/OpenWindows'
 import logo from './assets/bermuda.svg'
 import { IncidentsDashboard } from './components/IncidentsDashboard'
 import { UpdateBanner } from './components/UpdateBanner'
@@ -17,10 +19,14 @@ function App() {
 
   return (
     <main className="content">
-      <h1>
-        <img className="heading-logo" src={logo} alt="" />
-        Bermuda
-      </h1>
+      <header className="app-header">
+        <h1>
+          <img className="heading-logo" src={logo} alt="" />
+          Bermuda
+        </h1>
+        <ChannelPicker />
+        <OpenWindows />
+      </header>
       <UpdateBanner />
       <Suspense fallback={<p>Loading incidents…</p>}>
         <IncidentsDashboard />

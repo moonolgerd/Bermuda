@@ -3,8 +3,26 @@ namespace Bermuda.IpcContract;
 /// <summary>Response to <c>ping</c>.</summary>
 public sealed record PingResult(bool Pong);
 
-[IpCommand("ping", "undefined", nameof(PingResult), "Health check echoed back by the host.")]
-internal sealed class PingCommand;
+/// <summary>Host-level commands (no prefix). Implemented by <c>HostBridge</c>.</summary>
+[IpcCommands]
+public interface IHostCommands
+{
+    /// <summary>Health check echoed back by the host.</summary>
+    /// <summary>Health check echoed back by the host.</summary>
+    PingResult Ping();
+
+    /// <summary>Asks Windows whether a newer version is published at the .appinstaller URL.</summary>
+    Task<UpdateCheckResult> CheckForUpdateAsync();
+
+    /// <summary>Installs the newer version from the .appinstaller; the app restarts when it finishes.</summary>
+    Task<UpdateApplyResult> ApplyUpdateAsync();
+
+    /// <summary>Raises a Windows toast with optional images, buttons, a reply box and a priority.</summary>
+    Task<ShowNotificationResult> ShowNotificationAsync(ShowNotificationRequest request);
+
+    /// <summary>Test hook (only when the host runs with CDP_PORT): acts as if a toast or one of its buttons was clicked.</summary>
+    SimulateNotificationActivationResult SimulateNotificationActivation(SimulateNotificationActivationRequest request);
+}
 
 /// <summary>
 /// A postMessage request from the web side to <c>HostBridge</c>. <c>Payload</c>
@@ -71,14 +89,8 @@ public enum UpdateStatus
 /// <summary>Response to <c>checkForUpdate</c>.</summary>
 public sealed record UpdateCheckResult(UpdateStatus Status, string CurrentVersion, string Message);
 
-[IpCommand("checkForUpdate", "undefined", nameof(UpdateCheckResult), "Asks Windows whether a newer version is published at the .appinstaller URL.")]
-internal sealed class CheckForUpdateCommand;
-
 /// <summary>Response to <c>applyUpdate</c>.</summary>
 public sealed record UpdateApplyResult(bool Started, string Message);
-
-[IpCommand("applyUpdate", "undefined", nameof(UpdateApplyResult), "Installs the newer version from the .appinstaller; the app restarts when it finishes.")]
-internal sealed class ApplyUpdateCommand;
 
 /// <summary>How hard a toast tries to get the user's attention.</summary>
 [IpcType]
@@ -120,9 +132,6 @@ public sealed record ShowNotificationRequest(
 /// <summary>Response to <c>showNotification</c>. <c>Shown</c> is false when the toast could not be raised.</summary>
 public sealed record ShowNotificationResult(bool Shown, string Message);
 
-[IpCommand("showNotification", nameof(ShowNotificationRequest), nameof(ShowNotificationResult), "Raises a Windows toast with optional images, buttons, a reply box and a priority.")]
-internal sealed class ShowNotificationCommand;
-
 /// <summary>
 /// Pushed to the web side (<c>type: "notificationActivated"</c>) when the user clicks a toast or one of
 /// its buttons. <c>Action</c> is the button id, or empty for a click on the toast body.
@@ -140,5 +149,3 @@ public sealed record SimulateNotificationActivationRequest(string NotificationId
 /// <summary>Response to <c>simulateNotificationActivation</c>. <c>Delivered</c> is false when the toast or button is unknown.</summary>
 public sealed record SimulateNotificationActivationResult(bool Delivered, string Message);
 
-[IpCommand("simulateNotificationActivation", nameof(SimulateNotificationActivationRequest), nameof(SimulateNotificationActivationResult), "Test hook (only when the host runs with CDP_PORT): acts as if a toast or one of its buttons was clicked.")]
-internal sealed class SimulateNotificationActivationCommand;

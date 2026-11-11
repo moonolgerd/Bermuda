@@ -92,6 +92,7 @@ export function IncidentsTable({ incidents, selectedId, onSelect }: Props) {
             key={incident.id}
             data-status={incident.status.toLowerCase()}
             className={incident.id === selectedId ? styles.selectedRow : undefined}
+            data-selected={incident.id === selectedId || undefined}
             onClick={() => onSelect(incident.id)}
           >
             <td>{incident.date}</td>

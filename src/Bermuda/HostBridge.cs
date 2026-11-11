@@ -1,77 +1,91 @@
-﻿using System.Runtime.InteropServices;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Bermuda.Fdc3;
 using Bermuda.IpcContract;
 
 namespace Bermuda;
 
+/// <summary>
+/// Dispatches <c>invoke()</c> commands. A name is only accepted if
+/// <see cref="IpcContract.IpcContract"/> found it on an <c>[IpcCommands]</c>
+/// interface, and its payload is bound to that method's parameter type. The
+/// allow-list, the dispatch and the generated TypeScript all come from the
+/// same declarations, so they can't drift apart.
+/// </summary>
+/// <param name="fdc3">
+/// This window's current FDC3 connection, read per call because a page reload
+/// reconnects as a new instance (see MainWindow.OnContentLoading).
+/// </param>
+/// <param name="testHooks">Enables dev/test-only commands (MainWindow: when CDP_PORT is set).</param>
 [ClassInterface(ClassInterfaceType.AutoDual)]
 [ComVisible(true)]
-public class HostBridge
+public class HostBridge(Func<IFdc3Commands> fdc3, bool testHooks = false) : IHostCommands
 {
-    // Allow-list is derived from the contract so the host and the generated
-    // TypeScript can never drift apart.
-    private static readonly HashSet<string> AllowedCommands = new(
-        Bermuda.IpcContract.IpcContract.Commands.Select(c => c.Name), StringComparer.OrdinalIgnoreCase);
-
-    private static readonly JsonSerializerOptions PayloadJson = new(JsonSerializerDefaults.Web)
+    /// <summary>Web preset (camelCase, case-insensitive) with enums as camelCase strings, matching the generated TS unions.</summary>
+    public static JsonSerializerOptions PayloadJson { get; } = new(JsonSerializerDefaults.Web)
     {
         Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
     };
 
-    private static async Task<ShowNotificationResult> ShowNotificationAsync(object? payload)
-    {
-        var request = payload is JsonElement json
-            ? json.Deserialize<ShowNotificationRequest>(PayloadJson)
-            : null;
-        return request is null
-            ? new(false, "Expected { title, body }.")
-            : await NotificationService.ShowAsync(request);
-    }
-
-    // Commands that only make sense in dev/test runs (see MainWindow: enabled when CDP_PORT is set).
+    // Commands that only make sense in dev/test runs.
     private static readonly HashSet<string> TestCommands = new(StringComparer.OrdinalIgnoreCase)
     {
         "simulateNotificationActivation",
     };
 
-    private readonly bool _testHooks;
-
-    public HostBridge(bool testHooks = false) => _testHooks = testHooks;
-
-    private static SimulateNotificationActivationResult SimulateNotificationActivation(object? payload)
+    private static readonly Dictionary<string, object> InvalidPayloadResults = new(StringComparer.OrdinalIgnoreCase)
     {
-        var request = payload is JsonElement json
-            ? json.Deserialize<SimulateNotificationActivationRequest>(PayloadJson)
-            : null;
-        return request is null
-            ? new(false, "Expected { notificationId }.")
-            : NotificationService.Simulate(request);
-    }
+        ["showNotification"] = new ShowNotificationResult(false, "Expected { title, body }."),
+        ["simulateNotificationActivation"] = new SimulateNotificationActivationResult(false, "Expected { notificationId }."),
+    };
+
+    public PingResult Ping() => new(Pong: true);
+
+    public Task<UpdateCheckResult> CheckForUpdateAsync() => UpdateService.CheckAsync();
+
+    public Task<UpdateApplyResult> ApplyUpdateAsync() => UpdateService.ApplyAsync();
+
+    public Task<ShowNotificationResult> ShowNotificationAsync(ShowNotificationRequest request) =>
+        NotificationService.ShowAsync(request);
+
+    public SimulateNotificationActivationResult SimulateNotificationActivation(SimulateNotificationActivationRequest request) =>
+        NotificationService.Simulate(request);
 
     public async Task<object?> HandleAsync(string command, object? payload)
     {
-        if (!AllowedCommands.Contains(command))
+        if (IpcContract.IpcContract.Find(command) is not { } ipcCommand)
             return new { error = $"Unknown command: {command}" };
 
-        if (TestCommands.Contains(command) && !_testHooks)
+        if (TestCommands.Contains(command) && !testHooks)
             return new { error = $"{command} is only available in dev/test runs." };
 
         try
         {
-            return command.ToLowerInvariant() switch
-            {
-                "ping" => new { pong = true },
-                "checkforupdate" => await UpdateService.CheckAsync(),
-                "applyupdate" => await UpdateService.ApplyAsync(),
-                "shownotification" => await ShowNotificationAsync(payload),
-                "simulatenotificationactivation" => SimulateNotificationActivation(payload),
-                _ => new { error = "Unhandled command" }
-            };
+            return await ipcCommand.InvokeAsync(TargetFor(ipcCommand.Interface), payload as JsonElement?, PayloadJson);
         }
-        catch (Exception ex)
+        catch (IpcInvalidPayloadException) when (payload is not JsonElement { ValueKind: not (JsonValueKind.Null or JsonValueKind.Undefined) }
+                                              && InvalidPayloadResults.TryGetValue(command, out var result))
         {
+            // A missing payload is reported in these commands' normal result shape.
+            return result;
+        }
+        catch (Exception ex) when (ex is Fdc3Exception or IpcInvalidPayloadException)
+        {
+            // Fdc3Exception messages are the standard FDC3 error strings (and
+            // IpcInvalidPayloadException's is "InvalidArguments"), which the
+            // frontend's window.fdc3 rejects with as-is.
             return new { error = ex.Message };
         }
+        catch (Exception)
+        {
+            // Internal failures must not leak their message to page script.
+            return new { error = "Internal error" };
+        }
     }
+
+    private object TargetFor(Type commands) =>
+        commands == typeof(IFdc3Commands) ? fdc3()
+        : commands == typeof(IHostCommands) ? this
+        : throw new InvalidOperationException($"No handler for {commands.Name}.");
 }

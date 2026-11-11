@@ -9,15 +9,16 @@ using Microsoft.CodeAnalysis.Text;
 namespace Bermuda.IpcContract.SourceGenerator;
 
 /// <summary>
-/// Discovers <see cref="IpCommandAttribute"/> and <see cref="IpcHostObjectAttribute"/>
-/// declarations and the C# record types they reference, maps them to TypeScript,
+/// Discovers <see cref="IpcCommandsAttribute"/> interfaces and <see cref="IpcHostObjectAttribute"/>
+/// classes and the C# record types they reference, maps them to TypeScript,
 /// and emits:
 ///   • the file named by the consuming project's <c>IpcOutputPath</c> MSBuild
 ///     property (typically <c>src/ipc/__generated__/ipc.d.ts</c> in the frontend), and
 ///   • an embedded <c>internal const string</c> as a compile-time safety net.
 ///
-/// [IpCommand] marks a command on the <c>invoke()</c> postMessage channel and
-/// lives on a marker type in Bermuda.IpcContract (referenced assembly).
+/// [IpcCommands] marks an interface in Bermuda.IpcContract (referenced
+/// assembly) whose methods are commands on the <c>invoke()</c> postMessage
+/// channel; their parameter and return types become the TS signatures.
 /// [IpcHostObject] marks a class projected into script via
 /// <c>CoreWebView2.AddHostObjectToScript</c> — WebView2 maps its public methods
 /// and properties 1:1 onto identically named promises, so those classes live in
@@ -84,51 +85,100 @@ public sealed class IpcTypesSourceGenerator : IIncrementalGenerator
     private static string EscapeCs(string value) =>
         value.Replace("\\", "\\\\").Replace("\"", "\\\"").Replace("\r\n", "\\n").Replace("\n", "\\n");
 
+    /// <summary>
+    /// Every method of every [IpcCommands] interface in the contract assembly.
+    /// Naming must match <c>IpcContract.CommandName</c> at runtime.
+    /// </summary>
     private static List<CommandInfo> DiscoverCommands(Compilation compilation)
     {
         var results = new List<CommandInfo>();
 
-        foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
+        foreach (var type in ContractTypes(compilation))
         {
-            if (assembly.Name != ContractAssemblyName) continue;
+            if (type.TypeKind != TypeKind.Interface) continue;
 
-            WalkNamespace(assembly.GlobalNamespace, results);
+            var attribute = type.GetAttributes().FirstOrDefault(a => a.AttributeClass?.Name == "IpcCommandsAttribute");
+            if (attribute is null) continue;
+
+            var prefix = attribute.ConstructorArguments.Length > 0 ? attribute.ConstructorArguments[0].Value as string ?? "" : "";
+
+            foreach (var method in type.GetMembers().OfType<IMethodSymbol>().Where(m => m.MethodKind == MethodKind.Ordinary))
+            {
+                var parameter = method.Parameters.Length == 1 ? method.Parameters[0].Type : null;
+                var result = UnwrapTask(method.ReturnType);
+
+                results.Add(new CommandInfo(
+                    CommandName(prefix, method.Name),
+                    parameter is null ? "undefined" : TypeScriptDefinition.MapType(parameter),
+                    result is null ? "void" : TypeScriptDefinition.MapType(result),
+                    parameter,
+                    result));
+            }
         }
 
         results.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.Ordinal));
         return results;
     }
 
+    private static string CommandName(string prefix, string methodName)
+    {
+        var name = methodName.EndsWith("Async", StringComparison.Ordinal)
+            ? methodName.Substring(0, methodName.Length - "Async".Length)
+            : methodName;
+        name = char.ToLowerInvariant(name[0]) + name.Substring(1);
+        return prefix.Length == 0 ? name : prefix + "." + name;
+    }
+
+    /// <summary><c>Task</c> → null (void), <c>Task&lt;T&gt;</c> → T, <c>void</c> → null, anything else as-is.</summary>
+    private static ITypeSymbol? UnwrapTask(ITypeSymbol type)
+    {
+        if (type.SpecialType == SpecialType.System_Void) return null;
+        if (type is INamedTypeSymbol named && named.ContainingNamespace?.ToDisplayString() == "System.Threading.Tasks")
+        {
+            if (named.Name is "Task" or "ValueTask")
+                return named.TypeArguments.Length == 1 ? named.TypeArguments[0] : null;
+        }
+
+        return type;
+    }
+
     /// <summary>
-    /// Types get emitted either because a command's Input/Output names them, or
-    /// because they're directly marked [IpcType] (a shape with no single command
-    /// or host-object member behind it — e.g. one a TS helper assembles by hand).
+    /// Types get emitted when a command's parameter or result references them
+    /// (directly, as an array element, or through another emitted type's
+    /// properties), or when they're marked [IpcType] — a shape with no command
+    /// behind it, e.g. a push event or one a TS helper assembles by hand.
     /// </summary>
     private static (List<TypeDefinition> Types, List<EnumDefinition> Enums) DiscoverTypes(
         Compilation compilation, IReadOnlyList<CommandInfo> commands)
     {
-        var names = new List<string>(commands
-            .SelectMany(c => new[] { c.Input, c.Output })
-            .Where(t => t is not "undefined" and not "void"));
+        var pending = new Queue<ITypeSymbol>(commands
+            .SelectMany(c => new[] { c.InputSymbol, c.OutputSymbol })
+            .Where(t => t is not null)!);
 
-        foreach (var assembly in compilation.SourceModule.ReferencedAssemblySymbols)
+        foreach (var type in ContractTypes(compilation))
         {
-            if (assembly.Name != ContractAssemblyName) continue;
-
-            WalkNamespaceForIpcTypeNames(assembly.GlobalNamespace, names);
+            if (type.GetAttributes().Any(a => a.AttributeClass?.Name == "IpcTypeAttribute"))
+                pending.Enqueue(type);
         }
 
+        var seen = new HashSet<string>(StringComparer.Ordinal);
         var types = new List<TypeDefinition>();
         var enums = new List<EnumDefinition>();
-        foreach (var name in names.Distinct(System.StringComparer.Ordinal))
+
+        while (pending.Count > 0)
         {
-            var symbol = compilation.GetTypeByMetadataName($"{ContractAssemblyName}.{name}");
-            if (symbol is not INamedTypeSymbol type) continue;
+            if (ElementType(pending.Dequeue()) is not INamedTypeSymbol type) continue;
+            if (type.ContainingAssembly?.Name != ContractAssemblyName || !seen.Add(type.Name)) continue;
 
             if (type.TypeKind == TypeKind.Enum)
-                enums.Add(new EnumDefinition(name, TypeScriptDefinition.MapEnum(type)));
-            else
-                types.Add(new TypeDefinition(name, TypeScriptDefinition.MapRecord(type)));
+            {
+                enums.Add(new EnumDefinition(type.Name, TypeScriptDefinition.MapEnum(type)));
+                continue;
+            }
+
+            types.Add(new TypeDefinition(type.Name, TypeScriptDefinition.MapRecord(type)));
+            foreach (var property in TypeScriptDefinition.RecordProperties(type))
+                pending.Enqueue(property.Type);
         }
 
         types.Sort((a, b) => string.Compare(a.Name, b.Name, StringComparison.Ordinal));
@@ -136,48 +186,26 @@ public sealed class IpcTypesSourceGenerator : IIncrementalGenerator
         return (types, enums);
     }
 
-    private static void WalkNamespaceForIpcTypeNames(INamespaceSymbol ns, List<string> acc)
+    /// <summary>Strips arrays and <c>Nullable&lt;T&gt;</c> down to the named type underneath.</summary>
+    private static ITypeSymbol ElementType(ITypeSymbol type) => type switch
     {
-        foreach (var member in ns.GetMembers())
-        {
-            switch (member)
-            {
-                case INamespaceSymbol sub:
-                    WalkNamespaceForIpcTypeNames(sub, acc);
-                    break;
-                case INamedTypeSymbol type when type.GetAttributes().Any(a => a.AttributeClass?.Name == "IpcTypeAttribute"):
-                    acc.Add(type.Name);
-                    break;
-            }
-        }
-    }
+        IArrayTypeSymbol array => ElementType(array.ElementType),
+        INamedTypeSymbol { IsGenericType: true, OriginalDefinition.SpecialType: SpecialType.System_Nullable_T } nullable
+            => ElementType(nullable.TypeArguments[0]),
+        _ => type,
+    };
 
-    private static void WalkNamespace(INamespaceSymbol ns, List<CommandInfo> acc)
+    /// <summary>All top-level and nested types declared in the referenced contract assembly.</summary>
+    private static IEnumerable<INamedTypeSymbol> ContractTypes(Compilation compilation)
     {
-        foreach (var member in ns.GetMembers())
+        var assembly = compilation.SourceModule.ReferencedAssemblySymbols.FirstOrDefault(a => a.Name == ContractAssemblyName);
+        return assembly is null ? Enumerable.Empty<INamedTypeSymbol>() : Walk(assembly.GlobalNamespace);
+
+        static IEnumerable<INamedTypeSymbol> Walk(INamespaceSymbol ns)
         {
-            switch (member)
-            {
-                case INamespaceSymbol sub:
-                    WalkNamespace(sub, acc);
-                    break;
-                case INamedTypeSymbol type:
-                    var attribute = type.GetAttributes()
-                        .FirstOrDefault(a => a.AttributeClass?.Name == "IpCommandAttribute");
-                    if (attribute is null || attribute.ConstructorArguments.Length < 3) continue;
-
-                    var name = (string?)attribute.ConstructorArguments[0].Value;
-                    var input = (string?)attribute.ConstructorArguments[1].Value;
-                    var output = (string?)attribute.ConstructorArguments[2].Value;
-                    var description = attribute.ConstructorArguments.Length > 3
-                        ? (string?)attribute.ConstructorArguments[3].Value
-                        : "";
-
-                    if (name is null || input is null || output is null) continue;
-
-                    acc.Add(new CommandInfo(name, input, output, description ?? ""));
-                    break;
-            }
+            foreach (var type in ns.GetTypeMembers()) yield return type;
+            foreach (var sub in ns.GetNamespaceMembers())
+                foreach (var type in Walk(sub)) yield return type;
         }
     }
 

@@ -6,31 +6,32 @@ using System.Windows;
 using System.Windows.Interop;
 using System.Windows.Media.Imaging;
 using System.Windows.Shell;
+using Bermuda.Fdc3;
 using Bermuda.IpcContract;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Web.WebView2.Core;
 
 namespace Bermuda;
 
-public partial class MainWindow : Window, IWindowController
+public partial class MainWindow : Window, IWindowController, IFdc3AppSink
 {
-    // System.Text.Json's default is to preserve C# property names as-is
-    // (PascalCase); the web side expects camelCase (matches the generated
-    // TS shapes in src/ipc/__generated__/ipc.d.ts), so every host->web message
-    // goes through this. Enums go out as their camelCase names, which is the
-    // string-literal union the generator emits for [IpcType] enums (UpdateStatus, ...).
-    private static readonly JsonSerializerOptions HostToWebJson = new()
-    {
-        PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
-        Converters = { new JsonStringEnumConverter(JsonNamingPolicy.CamelCase) },
-    };
+    // The web side speaks camelCase (the generated TS shapes in
+    // src/ipc/__generated__/ipc.d.ts); System.Text.Json's default is to keep
+    // C# PascalCase and to match names case-sensitively. Its Web preset is
+    // camelCase out and case-insensitive in, so every message in both
+    // directions goes through it — without it nothing in { id, command }
+    // binds to IpcRequest and every command is rejected as unknown.
+    private static readonly JsonSerializerOptions HostJson = HostBridge.PayloadJson;
 
-    // The web side sends camelCase requests ({ id, command, payload }); the C# records
-    // use PascalCase members. Web defaults are camelCase + case-insensitive binding, so
-    // the request id actually binds and the response can be matched to its caller.
-    private static readonly JsonSerializerOptions WebToHostJson = new(JsonSerializerDefaults.Web);
+    // Every window shares one WebView2 environment (and so one browser
+    // process) — a second CreateAsync on the same user data folder would have
+    // to repeat the exact same options anyway, e.g. the CDP port.
+    private static Task<CoreWebView2Environment>? _environment;
 
     private readonly HostBridge _bridge;
+    private readonly DesktopAgent _fdc3;
+    private readonly string _fdc3AppId;
+    private readonly string? _fdc3LaunchInstanceId;
     private readonly string _webUrl;
     private readonly int _cdpPort;
     private readonly bool _clientTitleBar;
@@ -44,13 +45,32 @@ public partial class MainWindow : Window, IWindowController
     // the caption strip itself is that border.
     private static readonly Thickness ClientNormalMargin = new(ClientResizeBorder, 0, ClientResizeBorder, ClientResizeBorder);
 
-    public MainWindow(IConfiguration configuration)
+    // This window's FDC3 app instance. Connected on the first navigation (as
+    // the launcher-assigned instance, if FDC3 opened this window); every later
+    // navigation (reload, link) reconnects as a fresh instance, since the old
+    // page's listeners died with it.
+    private Fdc3Connection? _fdc3Connection;
+
+    // Set when the window closes. Requests still in flight (e.g. a page
+    // awaiting fdc3.getIntentResult) finish after that, and by then the WebView2
+    // is disposed, so every continuation checks this before touching it.
+    private bool _closed;
+
+    /// <param name="fdc3AppId">The App Directory appId this window's page runs as.</param>
+    /// <param name="fdc3InstanceId">Set when FDC3 launched this window; the agent is waiting on this id.</param>
+    /// <param name="url">Overrides WEB_URL (FDC3-launched windows load their App Directory URL).</param>
+    public MainWindow(IConfiguration configuration, DesktopAgent fdc3, string fdc3AppId, string? fdc3InstanceId = null, string? url = null)
     {
         InitializeComponent();
-        _webUrl = configuration["WEB_URL"] ?? "http://localhost:5555";
+        _fdc3 = fdc3;
+        _fdc3AppId = fdc3AppId;
+        _fdc3LaunchInstanceId = fdc3InstanceId;
+        _webUrl = url ?? configuration["WEB_URL"] ?? "http://localhost:5555";
         _cdpPort = configuration.GetValue("CDP_PORT", 0);
         // A remote debugging port already means "dev/test run"; test-only commands ride on that.
-        _bridge = new HostBridge(testHooks: _cdpPort > 0);
+        _bridge = new HostBridge(
+            () => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."),
+            testHooks: _cdpPort > 0);
 
         // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native
         // keeps the standard Windows caption. Read once at startup — the web app asks the
@@ -64,13 +84,39 @@ public partial class MainWindow : Window, IWindowController
         StateChanged += OnStateChanged;
 
         // A toast (or one of its buttons) was clicked: surface the window and tell the web app.
-        NotificationService.Activated += activation => Dispatcher.Invoke(() =>
+        NotificationService.Activated += OnNotificationActivated;
+        Closed += (_, _) =>
         {
-            ShowWindow();
-            Activate();
-            if (_webView.CoreWebView2 is not null)
-                PushEvent(activation);
-        });
+            _closed = true;
+            NotificationService.Activated -= OnNotificationActivated;
+            _fdc3Connection?.Dispose();
+            _fdc3Connection = null;
+            // With several windows open the app (and browser process) outlives
+            // this one, so release its page explicitly — otherwise it lingers
+            // as an orphaned, never-rendering CDP target.
+            _webView.Dispose();
+        };
+    }
+
+    // Only the app's main window reacts to toast clicks (every window is subscribed to the static event).
+    private void OnNotificationActivated(NotificationActivation activation) => Dispatcher.Invoke(() =>
+    {
+        if (_closed || Application.Current.MainWindow != this) return;
+
+        ShowWindow();
+        Activate();
+        if (_webView.CoreWebView2 is not null)
+            PushEvent(activation);
+    });
+
+    private Task<CoreWebView2Environment> GetEnvironmentAsync()
+    {
+        if (_environment is not null) return _environment;
+
+        var options = _cdpPort > 0
+            ? new CoreWebView2EnvironmentOptions { AdditionalBrowserArguments = $"--remote-debugging-port={_cdpPort}" }
+            : null;
+        return _environment = CoreWebView2Environment.CreateAsync(options: options);
     }
 
     // Client title bar mode: no native title text/icon, but Windows still draws the real
@@ -136,29 +182,61 @@ public partial class MainWindow : Window, IWindowController
             DwmSetWindowAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, ref round, sizeof(int));
         }
 
-        if (_cdpPort > 0)
-        {
-            var options = new CoreWebView2EnvironmentOptions
-            {
-                AdditionalBrowserArguments = $"--remote-debugging-port={_cdpPort}"
-            };
-            var env = await CoreWebView2Environment.CreateAsync(options: options);
-            await _webView.EnsureCoreWebView2Async(env);
-        }
-        else
-        {
-            await _webView.EnsureCoreWebView2Async();
-        }
+        await _webView.EnsureCoreWebView2Async(await GetEnvironmentAsync());
+        if (_closed) return;
 
 #if !DEBUG
         _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
         _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
 #endif
 
+        // window.fdc3 for every page, whatever app it is: runs before the page's own scripts.
+        if (File.Exists(Fdc3PreloadPath))
+            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(await File.ReadAllTextAsync(Fdc3PreloadPath));
+        if (_closed) return;
+
         _webView.CoreWebView2.AddHostObjectToScript("windowController", new WindowScriptHost(this));
         _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
+        _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
+        _webView.CoreWebView2.ContentLoading += OnContentLoading;
         _webView.CoreWebView2.Navigate(_webUrl);
     }
+
+    private static string Fdc3PreloadPath { get; } = Path.Combine(AppContext.BaseDirectory, "Preload", "fdc3-preload.js");
+
+    private string Origin(string? uri) =>
+        Uri.TryCreate(uri, UriKind.Absolute, out var u) ? u.GetLeftPart(UriPartial.Authority) : "";
+
+    private bool IsTrustedOrigin(string? uri) =>
+        string.Equals(Origin(uri), Origin(_webUrl), StringComparison.OrdinalIgnoreCase);
+
+    // Only this window's own origin may be shown: anything else would be
+    // connected to the agent (and the host bridge) under this window's appId.
+    private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
+    {
+        if (!IsTrustedOrigin(e.Uri)) e.Cancel = true;
+    }
+
+    // Reconnect once a navigation commits (ContentLoading fires before the
+    // page's scripts and not for cancelled/failed navigations or redirect hops),
+    // so the live page keeps its listeners until it is really replaced.
+    private void OnContentLoading(object? sender, CoreWebView2ContentLoadingEventArgs e)
+    {
+        try
+        {
+            var isFirstNavigation = _fdc3Connection is null;
+            _fdc3Connection?.Dispose();
+            _fdc3Connection = null;
+            _fdc3Connection = _fdc3.Connect(_fdc3AppId, this, isFirstNavigation ? _fdc3LaunchInstanceId : null);
+        }
+        catch (Exception)
+        {
+            // Leave the page unconnected (commands fail with an error) rather than crash the host.
+        }
+    }
+
+    // IFdc3AppSink: the agent's context/intent/event deliveries for this window's page.
+    void IFdc3AppSink.Post(object message) => PushEvent(message);
 
     private async void OnWebMessageReceived(object? sender,
         Microsoft.Web.WebView2.Core.CoreWebView2WebMessageReceivedEventArgs e)
@@ -166,25 +244,30 @@ public partial class MainWindow : Window, IWindowController
         IpcRequest? req;
         try
         {
-            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson, WebToHostJson);
+            req = JsonSerializer.Deserialize<IpcRequest>(e.WebMessageAsJson, HostJson);
         }
         catch
         {
             return;
         }
 
-        if (req is null) return;
+        if (req is null || !IsTrustedOrigin(e.Source)) return;
 
         var result = await _bridge.HandleAsync(req.Command, req.Payload);
-        var response = JsonSerializer.Serialize(new HostResponse(req.Id, result), HostToWebJson);
+        if (_closed) return;
 
-        Dispatcher.Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(response));
+        PostToPage(JsonSerializer.Serialize(new HostResponse(req.Id, result), HostJson));
     }
 
-    public void PushEvent(object eventPayload)
+    public void PushEvent(object eventPayload) => PostToPage(JsonSerializer.Serialize(eventPayload, HostJson));
+
+    /// <summary>Posts to the page unless the window has closed (which disposes the WebView2).</summary>
+    private void PostToPage(string json)
     {
-        var json = JsonSerializer.Serialize(eventPayload, HostToWebJson);
-        Dispatcher.Invoke(() => _webView.CoreWebView2.PostWebMessageAsJson(json));
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (!_closed) _webView.CoreWebView2.PostWebMessageAsJson(json);
+        });
     }
 
     // IWindowController -------------------------------------------------------
@@ -222,7 +305,9 @@ public partial class MainWindow : Window, IWindowController
 
     public void Restore() => ApplyWindowAction(() => base.WindowState = System.Windows.WindowState.Normal);
 
-    public void CloseWindow() => ApplyWindowAction(Close);
+    // Deferred: this is usually called from script (windowController.Close()),
+    // i.e. from inside a WebView2 callback, and closing disposes that WebView2.
+    public void CloseWindow() => Dispatcher.BeginInvoke(Close);
 
     public void Resize(int width, int height)
     {

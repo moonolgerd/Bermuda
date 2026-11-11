@@ -1,26 +1,20 @@
 namespace Bermuda.IpcContract;
 
 /// <summary>
-/// Marks a type as declaring one command on the <c>invoke()</c> postMessage
-/// channel. <see cref="IpcContract"/> discovers these at runtime to build the
-/// host's command allow-list; <c>Bermuda.IpcContract.SourceGenerator</c>
-/// discovers them at compile time to emit the matching TypeScript.
+/// Marks an interface whose methods are commands on the <c>invoke()</c>
+/// postMessage channel. The method signature is the contract: its single
+/// parameter (if any) is the payload, and its return type is the result.
+/// <c>Task</c>/<c>Task&lt;T&gt;</c> are unwrapped. Each command's name is
+/// <c>&lt;prefix&gt;.&lt;camelCaseMethodName&gt;</c>, minus any <c>Async</c>
+/// suffix (just the method name when the prefix is empty).
+/// <see cref="IpcContract"/> discovers these at runtime for the host's
+/// allow-list and dispatch. <c>Bermuda.IpcContract.SourceGenerator</c> discovers
+/// them at compile time to emit the matching TypeScript, nullability included.
 /// </summary>
-[AttributeUsage(AttributeTargets.Class)]
-public sealed class IpCommandAttribute : Attribute
+[AttributeUsage(AttributeTargets.Interface)]
+public sealed class IpcCommandsAttribute(string prefix = "") : Attribute
 {
-    public string Name { get; }
-    public string InputType { get; }
-    public string OutputType { get; }
-    public string Description { get; }
-
-    public IpCommandAttribute(string name, string inputType, string outputType, string description = "")
-    {
-        Name = name;
-        InputType = inputType;
-        OutputType = outputType;
-        Description = description;
-    }
+    public string Prefix { get; } = prefix;
 }
 
 /// <summary>
@@ -43,7 +37,7 @@ public sealed class IpcHostObjectAttribute : Attribute
 
 /// <summary>
 /// Marks a record whose shape should be emitted as a TypeScript interface even
-/// though it isn't the input/output of an <see cref="IpCommandAttribute"/>
+/// though it isn't the input/output of an <see cref="IpcCommandsAttribute"/>
 /// command — e.g. a shape a hand-written client-side helper constructs by
 /// combining several <see cref="IpcHostObjectAttribute"/> members (WebView2
 /// host objects can't return nested structured data directly, only

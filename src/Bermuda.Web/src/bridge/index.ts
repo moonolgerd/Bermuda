@@ -28,17 +28,34 @@ export type {
 const pending = new Map<string, (result: unknown) => void>()
 const activationListeners = new Set<(activation: NotificationActivation) => void>()
 
+/** A host-initiated message (no request id) — e.g. an FDC3 context delivery. Discriminated by `type`. */
+export interface HostEvent {
+  type: string
+}
+
+const eventHandlers = new Set<(event: HostEvent) => void>()
+
 window.chrome?.webview?.addEventListener('message', (e: Event) => {
-  const msg = (e as MessageEvent).data as HostResponse | NotificationActivation
+  const msg = (e as MessageEvent).data as HostResponse | NotificationActivation | HostEvent
   // Host-pushed events carry a `type` instead of a request `id`.
-  if ('type' in msg && msg.type === 'notificationActivated') {
-    for (const listener of activationListeners) listener(msg)
+  if (!('id' in msg)) {
+    if (msg.type === 'notificationActivated') {
+      for (const listener of activationListeners) listener(msg as NotificationActivation)
+    } else {
+      for (const handler of eventHandlers) handler(msg)
+    }
     return
   }
   const response = msg as HostResponse
   pending.get(response.id)?.(response.result)
   pending.delete(response.id)
 })
+
+/** Subscribe to host push events; returns an unsubscribe function. */
+function onEvent(handler: (event: HostEvent) => void): () => void {
+  eventHandlers.add(handler)
+  return () => eventHandlers.delete(handler)
+}
 
 function invoke<T>(command: string, payload?: unknown): Promise<T> {
   const id = crypto.randomUUID()
@@ -116,6 +133,7 @@ export type NotificationsApi = typeof notificationsApi
 
 export const bermudaHost = {
   invoke,
+  onEvent,
   window: windowApi,
   updates: updatesApi,
   notifications: notificationsApi,
