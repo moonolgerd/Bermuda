@@ -94,6 +94,10 @@ jobs:
     name: E2E tests
     needs: build
     runs-on: self-hosted
+    # The runner is one machine with fixed-name resources (the app's windows, ports, the FDC3 pipe): one e2e at a time.
+    concurrency:
+      group: e2e-self-hosted
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -121,6 +125,32 @@ jobs:
       - name: Install Playwright browsers
         working-directory: src/Bermuda.Web
         run: pnpm exec playwright install chromium
+
+      # The runner is a normal user machine: Bermuda may be installed and running, a dev may have Aspire up, and
+      # an older run may have left processes behind. So every run gets its own FDC3 pipe, ports and dashboard
+      # endpoints, and nothing here depends on the defaults being free.
+      - name: Isolate this run from the rest of the machine
+        shell: pwsh
+        run: |
+          function Get-FreePort {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = $listener.LocalEndpoint.Port
+            $listener.Stop()
+            $port
+          }
+          $lines = @(
+            "FDC3_GRPC_PIPE=bermuda-fdc3-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT",
+            "WEB_PORT=$(Get-FreePort)",
+            "CDP_PORT=$(Get-FreePort)",
+            "ASPNETCORE_URLS=http://localhost:$(Get-FreePort)",
+            "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL=http://localhost:$(Get-FreePort)",
+            "ASPIRE_DASHBOARD_MCP_ENDPOINT_URL=http://localhost:$(Get-FreePort)",
+            "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL=http://localhost:$(Get-FreePort)",
+            "ASPIRE_ALLOW_UNSECURED_TRANSPORT=true"
+          )
+          $lines | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $lines | ForEach-Object { Write-Host $_ }
 
       - name: Run E2E tests
         working-directory: src/Bermuda.Web

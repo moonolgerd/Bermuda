@@ -3,13 +3,13 @@ import type { Page } from '@playwright/test'
 
 /**
  * Override the default `page` fixture to connect to the live WebView2 instance
- * via CDP on port 9222. This lets tests run against the fully wired app
+ * via CDP on port CDP_PORT (default 9222). This lets tests run against the fully wired app
  * (Aspire-managed Vite + GraphQL API) without needing a separate web server.
  */
 export const test = base.extend<{ page: Page }>({
   // biome-ignore lint/correctness/noEmptyPattern: Playwright's fixture signature requires this shape.
   page: async ({}, provide: (page: Page) => Promise<void>) => {
-    const browser = await chromium.connectOverCDP('http://localhost:9222')
+    const browser = await chromium.connectOverCDP(`http://localhost:${process.env.CDP_PORT ?? '9222'}`)
     const context = browser.contexts()[0]
     const page = context.pages()[0]
 
