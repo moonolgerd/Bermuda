@@ -104,7 +104,7 @@ await window.fdc3.broadcast({ type: 'bermuda.incident', id: { incidentId: '7' } 
 const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
 ```
 
-- **Where it lives** — the agent is `src/Bermuda.Fdc3/DesktopAgent.cs` (one per process, shared by all windows). `src/Bermuda.Web/src/fdc3/` implements the `@finos/fdc3-standard` `DesktopAgent` interface by calling `fdc3.*` `invoke()` commands (the `IFdc3Commands` interface in `Bermuda.IpcContract/Fdc3Contract.cs`, implemented per app instance by `Fdc3Connection`, so their TS types are generated like everything else) and dispatching the host's `fdc3.context` / `fdc3.intent` / `fdc3.event` pushes to registered handlers.
+- **Where it lives** — the agent is `src/Bermuda.Fdc3/DesktopAgent.cs` (one per process, shared by all windows). `src/Bermuda.Web/src/fdc3/` implements the `@finos/fdc3-standard` `DesktopAgent` interface by calling `fdc3.*` `invoke()` commands (the `IFdc3Commands` interface, generated from `Bermuda.Fdc3.Proto/Protos/fdc3.proto` into `Bermuda.IpcContract/Generated/Fdc3Contract.g.cs`, implemented per app instance by `Fdc3Connection`, so their TS types are generated like everything else) and dispatching the host's `fdc3.context` / `fdc3.intent` / `fdc3.event` pushes to registered handlers.
 - **Supported** — the 8 recommended user channels, app channels, private channels (with their events), `broadcast`/`addContextListener`/`getCurrentContext`, `findIntent`/`findIntentsByContext`/`raiseIntent`/`raiseIntentForContext`/`addIntentListener` with results (context or channel), `open`, `findInstances`, `getAppMetadata`, `getInfo`, and the `userChannelChanged` event. Not yet: Desktop Agent Bridging, or the Web Connection Protocol for browser apps outside the host.
 - **Preload bundle** — `fdc3-preload.js` is built from `src/Bermuda.Web/src/fdc3/preload.ts` by `pnpm build:preload` (part of `pnpm build`) and committed, like `ipc.d.ts`, so the host builds without Node; CI fails if it's out of date. Re-run `pnpm build:preload` after touching anything under `src/fdc3/`.
 - **App Directory** — `src/Bermuda/fdc3-appd.json` uses the AppD v2 `applications` shape; relative `details.url`s resolve against `WEB_URL`. `fdc3.open` (or raising an intent at an app that isn't running) opens the app in a new host window and resolves once the app has connected (and, if you passed a context, registered a listener for it), or rejects with `AppTimeout`. Intent results the raiser never collects are dropped after 10 minutes.
@@ -117,6 +117,8 @@ const resolution = await window.fdc3.raiseIntent('ViewIncident', context)
 # Build a self-contained MSIX installer (needs the winapp CLI: winget install Microsoft.winappcli --source winget)
 dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
 # Output: artifacts/msix/
+
+# The package also contains the native FDC3 side apps listed in src/Bermuda/fdc3-appd.json (type "native").
 ```
 
 ### Releases and auto-update

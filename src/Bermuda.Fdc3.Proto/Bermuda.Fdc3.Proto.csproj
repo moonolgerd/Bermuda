@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Home of Protos/fdc3.proto, the source of truth for Bermuda's FDC3 contract.
+      * Grpc.Tools builds the gRPC messages and the Fdc3Agent service from it (this assembly).
+      * Right after protoc, Bermuda.Fdc3.Grpc.Generator reads protoc's descriptor set and writes
+        ../Bermuda.IpcContract/Generated/Fdc3Contract.g.cs (records + IFdc3Commands) and
+        ../Bermuda.Fdc3.Grpc/Generated/Fdc3Generated.g.cs (the gRPC glue). Both are checked in, like ipc.d.ts,
+        and refreshed by this project's build. Bermuda.IpcContract references this project (build order only)
+        so a proto edit is picked up in the same build.
+    This project must not depend on IpcContract or Fdc3: they are generated from it.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Bermuda.Fdc3.Proto</AssemblyName>
+    <RootNamespace>Bermuda.Fdc3.Grpc.Proto</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Google.Protobuf" />
+    <PackageReference Include="Grpc.Core.Api" />
+    <PackageReference Include="Grpc.Net.Client" />
+    <PackageReference Include="Grpc.Tools" PrivateAssets="All" />
+    <Protobuf Include="Protos\fdc3.proto" GrpcServices="Both" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3.Grpc.Generator\Bermuda.Fdc3.Grpc.Generator.csproj" ReferenceOutputAssembly="false" Private="false" />
+  </ItemGroup>
+
+  <Target Name="GenerateFdc3Contract" AfterTargets="Protobuf_Compile" BeforeTargets="CoreCompile"
+          Inputs="Protos\fdc3.proto;..\Bermuda.Fdc3.Grpc.Generator\Program.cs"
+          Outputs="..\Bermuda.IpcContract\Generated\Fdc3Contract.g.cs;..\Bermuda.Fdc3.Grpc\Generated\Fdc3Generated.g.cs">
+    <!-- The generator reads protoc's descriptor set of the proto (with source info, for the doc comments). -->
+    <Exec Command="&quot;$(Protobuf_ProtocFullPath)&quot; --proto_path=&quot;$(MSBuildProjectDirectory)\Protos&quot; --proto_path=&quot;$(Protobuf_StandardImportsPath)&quot; --descriptor_set_out=&quot;$(MSBuildProjectDirectory)\obj\fdc3.pb&quot; --include_source_info &quot;$(MSBuildProjectDirectory)\Protos\fdc3.proto&quot;" />
+    <Exec Command="dotnet &quot;$(MSBuildProjectDirectory)\..\Bermuda.Fdc3.Grpc.Generator\bin\$(Configuration)\net10.0\Bermuda.Fdc3.Grpc.Generator.dll&quot; &quot;$(MSBuildProjectDirectory)\obj\fdc3.pb&quot; &quot;$(MSBuildProjectDirectory)\..\Bermuda.IpcContract\Generated\Fdc3Contract.g.cs&quot; &quot;$(MSBuildProjectDirectory)\..\Bermuda.Fdc3.Grpc\Generated\Fdc3Generated.g.cs&quot;" />
+  </Target>
+
+</Project>

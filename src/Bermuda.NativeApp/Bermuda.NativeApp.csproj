@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    A sample native FDC3 side app. It connects to Bermuda's named pipe as "native-incidents"
+    (see src/Bermuda/fdc3-appd.json) and acknowledges incidents it receives.
+
+    Deployment: it ships INSIDE Bermuda's MSIX, as a second application of that package (see
+    src/Bermuda/Package.appxmanifest), so it installs and updates with Bermuda from the same .appinstaller.
+    During development Aspire starts it next to the host.
+
+    It has no window, so it is a WinExe: no console flashes up when Windows starts it at sign-in.
+  -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- Just the pipe client and messages: no ASP.NET Core, so it adds little to the package. -->
+    <ProjectReference Include="..\Bermuda.Fdc3.Proto\Bermuda.Fdc3.Proto.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -3,7 +3,7 @@
 // The Desktop Agent itself lives in the host (src/Bermuda.Fdc3/DesktopAgent.cs);
 // this class implements the standard @finos/fdc3-standard DesktopAgent
 // interface by forwarding each call as an fdc3.* invoke() command (shapes
-// generated into ipc/__generated__/ipc.d.ts from src/Bermuda.IpcContract/Fdc3Contract.cs)
+// generated into ipc/__generated__/ipc.d.ts from src/Bermuda.Fdc3.Proto/Protos/fdc3.proto)
 // and dispatching the host's fdc3.context / fdc3.intent / fdc3.event pushes to
 // the handlers registered here. Errors reject with `new Error(<FDC3 error string>)`
 // (e.g. 'NoAppsFound'), as the standard specifies.

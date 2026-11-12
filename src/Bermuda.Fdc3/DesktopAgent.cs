@@ -263,6 +263,10 @@ public sealed class DesktopAgent
         outbox.Flush();
     }
 
+    /// <summary>API event details are plain objects built here; events carry them as JSON.</summary>
+    private static JsonElement? ToJson(object? details) =>
+        details is null ? null : JsonSerializer.SerializeToElement(details, JsonSerializerOptions.Web);
+
     private void QueueUserChannelChanged(AppInstance caller, Outbox outbox)
     {
         var details = new Dictionary<string, object?> { ["currentChannelId"] = caller.CurrentUserChannelId };
@@ -270,7 +274,7 @@ public sealed class DesktopAgent
                      l.InstanceId == caller.InstanceId && l.Kind == ListenerKind.Event && l.ChannelId is null &&
                      (l.EventType is null || l.EventType == "userChannelChanged")))
         {
-            outbox.Add(caller.Sink, new Fdc3ApiEvent(listener.ListenerId, "userChannelChanged", details));
+            outbox.Add(caller.Sink, new Fdc3ApiEvent(listener.ListenerId, "userChannelChanged", ToJson(details)));
         }
     }
 
@@ -376,7 +380,7 @@ public sealed class DesktopAgent
                      (l.EventType is null || l.EventType == eventType)))
         {
             if (_instances.TryGetValue(listener.InstanceId, out var target))
-                outbox.Add(target.Sink, new Fdc3ApiEvent(listener.ListenerId, eventType, details));
+                outbox.Add(target.Sink, new Fdc3ApiEvent(listener.ListenerId, eventType, ToJson(details)));
         }
     }
 
@@ -536,7 +540,7 @@ public sealed class DesktopAgent
                              l.Kind == ListenerKind.Context && l.ChannelId == channel.Id && l.InstanceId != caller.InstanceId))
                 {
                     outbox.Add(caller.Sink, new Fdc3ApiEvent(request.ListenerId, "addContextListener",
-                        new Dictionary<string, object?> { ["contextType"] = existing.ContextType }));
+                        ToJson(new Dictionary<string, object?> { ["contextType"] = existing.ContextType })));
                 }
             }
         }

@@ -8,4 +8,12 @@
     <RootNamespace>Bermuda.IpcContract</RootNamespace>
   </PropertyGroup>
 
+  <!--
+    Generated/Fdc3Contract.g.cs is written by Bermuda.Fdc3.Proto's build from its fdc3.proto. This reference is for
+    build order only, so a proto edit is regenerated before this project compiles.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3.Proto\Bermuda.Fdc3.Proto.csproj" ReferenceOutputAssembly="false" />
+  </ItemGroup>
+
 </Project>

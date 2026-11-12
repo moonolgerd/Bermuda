@@ -57,6 +57,12 @@ jobs:
         if: startsWith(github.ref, 'refs/tags/v')
         run: dotnet publish src/Bermuda/Bermuda.csproj --configuration Release --runtime win-x64 --self-contained true --output artifacts/publish -p:PublishSingleFile=false -p:PublishReadyToRun=false
 
+      # The native side apps listed in fdc3-appd.json ship inside Bermuda's MSIX as more applications, so they
+      # are published into the same folder (shared runtime/library files are identical).
+      - name: Publish self-contained native apps into the same folder
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: dotnet msbuild src/Bermuda/Bermuda.csproj -t:PublishNativeApps -p:Configuration=Release -p:NativeAppsPublishDir=${{ github.workspace }}/artifacts/publish/
+
       - name: Upload self-contained app
         if: startsWith(github.ref, 'refs/tags/v')
         uses: actions/upload-artifact@v4
@@ -69,6 +75,11 @@ jobs:
       # sure it matches src/Bermuda.Web/src/fdc3.
       - name: Check committed FDC3 preload is up to date
         run: git diff --ignore-cr-at-eol --exit-code -- src/Bermuda/Preload
+
+      # The FDC3 contract is generated from src/Bermuda.Fdc3.Proto/Protos/fdc3.proto by the build
+      # (Bermuda.Fdc3.Proto); the outputs are committed, so a stale or hand-edited copy fails here.
+      - name: Check committed FDC3 generated code is up to date
+        run: git diff --ignore-cr-at-eol --exit-code -- src/Bermuda.IpcContract/Generated src/Bermuda.Fdc3.Grpc/Generated
 
   # ─── E2E (requires a Windows desktop runner) ──────────────────────────────
   #
@@ -83,6 +94,10 @@ jobs:
     name: E2E tests
     needs: build
     runs-on: self-hosted
+    # The runner is one machine with fixed-name resources (the app's windows, ports, the FDC3 pipe): one e2e at a time.
+    concurrency:
+      group: e2e-self-hosted
+      cancel-in-progress: false
 
     steps:
       - uses: actions/checkout@v4
@@ -110,6 +125,32 @@ jobs:
       - name: Install Playwright browsers
         working-directory: src/Bermuda.Web
         run: pnpm exec playwright install chromium
+
+      # The runner is a normal user machine: Bermuda may be installed and running, a dev may have Aspire up, and
+      # an older run may have left processes behind. So every run gets its own FDC3 pipe, ports and dashboard
+      # endpoints, and nothing here depends on the defaults being free.
+      - name: Isolate this run from the rest of the machine
+        shell: pwsh
+        run: |
+          function Get-FreePort {
+            $listener = [System.Net.Sockets.TcpListener]::new([System.Net.IPAddress]::Loopback, 0)
+            $listener.Start()
+            $port = $listener.LocalEndpoint.Port
+            $listener.Stop()
+            $port
+          }
+          $lines = @(
+            "FDC3_GRPC_PIPE=bermuda-fdc3-ci-$env:GITHUB_RUN_ID-$env:GITHUB_RUN_ATTEMPT",
+            "WEB_PORT=$(Get-FreePort)",
+            "CDP_PORT=$(Get-FreePort)",
+            "ASPNETCORE_URLS=http://localhost:$(Get-FreePort)",
+            "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL=http://localhost:$(Get-FreePort)",
+            "ASPIRE_DASHBOARD_MCP_ENDPOINT_URL=http://localhost:$(Get-FreePort)",
+            "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL=http://localhost:$(Get-FreePort)",
+            "ASPIRE_ALLOW_UNSECURED_TRANSPORT=true"
+          )
+          $lines | Out-File -FilePath $env:GITHUB_ENV -Encoding utf8 -Append
+          $lines | ForEach-Object { Write-Host $_ }
 
       - name: Run E2E tests
         working-directory: src/Bermuda.Web

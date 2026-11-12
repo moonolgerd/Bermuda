@@ -1,6 +1,32 @@
 {
   "applications": [
     {
+      "appId": "native-incidents",
+      "name": "native-incidents",
+      "title": "Native Incidents",
+      "description": "Sample native side app (Bermuda.NativeApp) connected over gRPC on a named pipe. Acknowledges incidents it receives.",
+      "type": "native",
+      "details": {
+        "path": "Bermuda.NativeApp.exe",
+        "project": "../Bermuda.NativeApp/Bermuda.NativeApp.csproj"
+      },
+      "interop": {
+        "intents": {
+          "listensFor": {
+            "AcknowledgeIncident": {
+              "displayName": "Acknowledge Incident (native)",
+              "contexts": ["bermuda.incident"],
+              "resultType": "bermuda.native.ack"
+            }
+          }
+        },
+        "userChannels": {
+          "broadcasts": ["bermuda.native.ack"],
+          "listensFor": ["bermuda.incident"]
+        }
+      }
+    },
+    {
       "appId": "fdc3-probe",
       "name": "fdc3-probe",
       "title": "FDC3 Probe",

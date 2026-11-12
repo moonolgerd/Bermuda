@@ -1,0 +1,28 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!--
+    Serves the in-process DesktopAgent to native apps over gRPC on a named pipe.
+    The messages and the Fdc3Agent service base come from Bermuda.Fdc3.Proto (fdc3.proto is the source of truth);
+    Generated/Fdc3Generated.g.cs (written by that project's build) maps them to the Fdc3Connection API.
+    Hand-written here: Mapping.cs (JSON helper), Fdc3AgentService.cs (Subscribe, caller lookup), the host and the client.
+  -->
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>Bermuda.Fdc3.Grpc</AssemblyName>
+    <RootNamespace>Bermuda.Fdc3.Grpc</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+    <PackageReference Include="Grpc.AspNetCore" />
+    <PackageReference Include="Grpc.Net.Client" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3.Proto\Bermuda.Fdc3.Proto.csproj" />
+    <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,303 @@
+// Bermuda's FDC3 2.2 Desktop Agent contract. THIS FILE IS THE SOURCE OF TRUTH for it.
+//
+// From it the build produces (Bermuda.Fdc3.Proto):
+//   * the gRPC messages and Fdc3Agent service (Grpc.Tools), used by native apps over the named pipe;
+//   * src/Bermuda.IpcContract/Generated/Fdc3Contract.g.cs: the C# records and IFdc3Commands that the
+//     in-process DesktopAgent implements and the web bridge dispatches ([IpcCommands]/[IpcType], from
+//     which the TypeScript types are generated);
+//   * src/Bermuda.Fdc3.Grpc/Generated/Fdc3Generated.g.cs: the glue between the two.
+// The generated C# is checked in. Edit this file, rebuild, commit the regenerated files.
+//
+// Shapes mirror the FDC3 API types (AppIdentifier, AppMetadata, AppIntent, ...) closely enough that the
+// frontend shim passes them through with at most a light wrap. FDC3 contexts are open-ended JSON objects
+// whose only required field is `type`, so they travel as JSON text.
+//
+// Conventions the generator relies on (it fails the build on anything else):
+//   message Foo                -> record Fdc3Foo; fields keep their order, which is also the constructor order
+//   string / bool              -> string / bool; proto3 `optional` -> nullable (also for message fields)
+//   string xxx_json            -> JsonElement xxx (JSON text on the wire); optional -> JsonElement?
+//   repeated Foo               -> Foo[]
+//   json_name                  -> the C# property / web JSON name, when it is not the camel-cased field name
+//   rpc M(Req) returns (Resp)  -> M(Req request) on IFdc3Commands (MAsync returning Task when `async`);
+//                                 google.protobuf.Empty -> no parameter / void
+//   message MResponse          -> M's result when it is an array (`repeated items`), nullable (`result`) or
+//                                 a nullable context (`optional string result_json`)
+//   AgentEvent oneof           -> the [IpcType] event records; the field name is the web message type
+//                                 ("fdc3.<field>"); `connected` exists only on the gRPC stream
+// Never renumber or reuse a field number.
+syntax = "proto3";
+
+package bermuda.fdc3.v1;
+
+import "google/protobuf/descriptor.proto";
+import "google/protobuf/empty.proto";
+
+option csharp_namespace = "Bermuda.Fdc3.Grpc.Proto";
+
+extend google.protobuf.MethodOptions {
+  // The command waits for another app (launch, handler result), so the C# method is `Task`-returning.
+  bool async = 50001;
+}
+
+// Connection model (gRPC): one pipe client opens Subscribe(app_id). The first message on that stream is
+// `connected` (carrying the new instance_id); the agent's deliveries follow. Every other RPC must carry
+// the instance_id in the `x-fdc3-instance` request header and use the same pipe connection. The instance
+// leaves the agent when the Subscribe stream ends. Failures are gRPC errors whose status detail is the
+// FDC3 error string (Fdc3Errors).
+service Fdc3Agent {
+  rpc Subscribe(SubscribeRequest) returns (stream AgentEvent);
+
+  rpc GetInfo(google.protobuf.Empty) returns (ImplementationMetadata);
+  rpc GetAppMetadata(AppIdentifier) returns (AppMetadata);
+  rpc FindInstances(AppIdentifier) returns (FindInstancesResponse);
+  rpc Open(OpenRequest) returns (AppIdentifier) { option (async) = true; }
+
+  rpc GetUserChannels(google.protobuf.Empty) returns (GetUserChannelsResponse);
+  rpc JoinUserChannel(ChannelIdRequest) returns (google.protobuf.Empty);
+  rpc LeaveCurrentChannel(google.protobuf.Empty) returns (google.protobuf.Empty);
+  rpc GetCurrentChannel(google.protobuf.Empty) returns (GetCurrentChannelResponse);
+  rpc GetOrCreateChannel(ChannelIdRequest) returns (ChannelInfo);
+  rpc CreatePrivateChannel(google.protobuf.Empty) returns (ChannelInfo);
+  rpc DisconnectPrivateChannel(ChannelIdRequest) returns (google.protobuf.Empty);
+
+  // FDC3 broadcast() and channel.broadcast().
+  rpc Broadcast(BroadcastRequest) returns (google.protobuf.Empty);
+  rpc GetCurrentContext(GetCurrentContextRequest) returns (GetCurrentContextResponse);
+  rpc AddContextListener(AddContextListenerRequest) returns (google.protobuf.Empty);
+  rpc AddIntentListener(AddIntentListenerRequest) returns (google.protobuf.Empty);
+  rpc AddEventListener(AddEventListenerRequest) returns (google.protobuf.Empty);
+  // Listener.unsubscribe(), for every kind of listener.
+  rpc Unsubscribe(ListenerIdRequest) returns (google.protobuf.Empty);
+
+  rpc FindIntent(FindIntentRequest) returns (AppIntent);
+  rpc FindIntentsByContext(FindIntentsByContextRequest) returns (FindIntentsByContextResponse);
+  rpc RaiseIntent(RaiseIntentRequest) returns (IntentResolutionInfo) { option (async) = true; }
+  rpc RaiseIntentForContext(RaiseIntentForContextRequest) returns (IntentResolutionInfo) { option (async) = true; }
+  // IntentResolution.getResult().
+  rpc GetIntentResult(ResultIdRequest) returns (IntentResultInfo) { option (async) = true; }
+  // Reports an intent handler's result back to the raiser.
+  rpc SendIntentResult(SendIntentResultRequest) returns (google.protobuf.Empty);
+}
+
+// Shapes ---------------------------------------------------------------------
+
+message AppIdentifier {
+  string app_id = 1;
+  optional string instance_id = 2;
+}
+
+message DisplayMetadata {
+  optional string name = 1;
+  optional string color = 2;
+  optional string glyph = 3;
+}
+
+// A user, app or private channel. `type` is one of 'user' | 'app' | 'private'.
+message ChannelInfo {
+  string id = 1;
+  string type = 2;
+  optional DisplayMetadata display_metadata = 3;
+}
+
+message IntentMetadata {
+  string name = 1;
+  optional string display_name = 2;
+}
+
+message AppMetadata {
+  string app_id = 1;
+  optional string instance_id = 2;
+  optional string name = 3;
+  optional string version = 4;
+  optional string title = 5;
+  optional string tooltip = 6;
+  optional string description = 7;
+  optional string result_type = 8;
+}
+
+message AppIntent {
+  IntentMetadata intent = 1;
+  repeated AppMetadata apps = 2;
+}
+
+message OptionalFeatures {
+  bool originating_app_metadata = 1;
+  bool user_channel_membership_apis = 2 [json_name = "userChannelMembershipAPIs"];
+  bool desktop_agent_bridging = 3;
+}
+
+message ImplementationMetadata {
+  string fdc3_version = 1;
+  string provider = 2;
+  optional string provider_version = 3;
+  OptionalFeatures optional_features = 4;
+  AppMetadata app_metadata = 5;
+}
+
+// What raiseIntent/raiseIntentForContext return. The frontend turns it into an FDC3 IntentResolution whose
+// getResult() calls getIntentResult with `result_id`.
+message IntentResolutionInfo {
+  AppIdentifier source = 1;
+  string intent = 2;
+  string result_id = 3;
+}
+
+// An intent handler's result: a context, a channel, or neither (void).
+message IntentResultInfo {
+  optional string context_json = 1;
+  optional ChannelInfo channel = 2;
+}
+
+// Requests -------------------------------------------------------------------
+
+message ChannelIdRequest {
+  string channel_id = 1;
+}
+
+// `channel_id` unset = the caller's current user channel.
+message BroadcastRequest {
+  optional string channel_id = 1;
+  string context_json = 2;
+}
+
+message GetCurrentContextRequest {
+  string channel_id = 1;
+  optional string context_type = 2;
+}
+
+// `listener_id` is chosen by the caller and echoed back in every ContextEvent for this listener.
+// `channel_id` unset = follow whichever user channel the caller is joined to (fdc3.addContextListener);
+// set = a specific app/private channel (channel.addContextListener).
+message AddContextListenerRequest {
+  string listener_id = 1;
+  optional string channel_id = 2;
+  optional string context_type = 3;
+}
+
+message AddIntentListenerRequest {
+  string listener_id = 1;
+  string intent = 2;
+}
+
+// `channel_id` unset = desktop-agent events ('userChannelChanged'); set = private channel events
+// ('addContextListener' | 'unsubscribe' | 'disconnect'). `event_type` unset = all event types.
+message AddEventListenerRequest {
+  string listener_id = 1;
+  optional string event_type = 2;
+  optional string channel_id = 3;
+}
+
+message ListenerIdRequest {
+  string listener_id = 1;
+}
+
+message FindIntentRequest {
+  string intent = 1;
+  optional string context_json = 2;
+  optional string result_type = 3;
+}
+
+message FindIntentsByContextRequest {
+  string context_json = 1;
+  optional string result_type = 2;
+}
+
+message OpenRequest {
+  AppIdentifier app = 1;
+  optional string context_json = 2;
+}
+
+message RaiseIntentRequest {
+  string intent = 1;
+  string context_json = 2;
+  optional AppIdentifier app = 3;
+}
+
+message RaiseIntentForContextRequest {
+  string context_json = 1;
+  optional AppIdentifier app = 2;
+}
+
+message ResultIdRequest {
+  string result_id = 1;
+}
+
+// Sent by the instance that handled an intent once its handler settles. At most one of
+// `context_json`/`channel_id` is set (neither = void); `error` is set instead if the handler threw/rejected.
+message SendIntentResultRequest {
+  string result_id = 1;
+  optional string context_json = 2;
+  optional string channel_id = 3;
+  optional string error = 4;
+}
+
+// Results that are lists or can be absent ---------------------------------------
+
+message FindInstancesResponse {
+  repeated AppIdentifier items = 1;
+}
+
+message GetUserChannelsResponse {
+  repeated ChannelInfo items = 1;
+}
+
+message GetCurrentChannelResponse {
+  optional ChannelInfo result = 1;
+}
+
+message GetCurrentContextResponse {
+  optional string result_json = 1;
+}
+
+message FindIntentsByContextResponse {
+  repeated AppIntent items = 1;
+}
+
+// Agent -> app events -------------------------------------------------------------
+
+// Delivery to a listener added with AddContextListener.
+message ContextEvent {
+  string listener_id = 1;
+  string context_json = 2;
+  optional AppIdentifier source = 3;
+}
+
+// Delivery to an intent listener; the handler reports back with SendIntentResult(result_id).
+message IntentEvent {
+  string listener_id = 1;
+  string intent = 2;
+  string context_json = 3;
+  optional AppIdentifier source = 4;
+  string result_id = 5;
+}
+
+// An FDC3 ApiEvent (`event_type` + `details`) for a listener added via AddEventListener.
+message ApiEvent {
+  string listener_id = 1;
+  string event_type = 2;
+  optional string details_json = 3;
+}
+
+// gRPC transport only -------------------------------------------------------------
+
+message SubscribeRequest {
+  string app_id = 1;
+  // The instance id the host passed in the FDC3_INSTANCE_ID environment variable when it launched this app
+  // (fdc3.open / an intent raised at it while it was down). Leave unset for an app that was started on its own.
+  optional string instance_id = 2;
+}
+
+// First message of every Subscribe stream.
+message Connected {
+  string instance_id = 1;
+  string app_id = 2;
+}
+
+message AgentEvent {
+  oneof kind {
+    Connected connected = 1;
+    ApiEvent event = 2;
+    ContextEvent context = 3;
+    IntentEvent intent = 4;
+  }
+}
