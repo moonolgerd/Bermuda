@@ -117,26 +117,15 @@
   <!--
     Native side apps are discovered from the FDC3 App Directory, fdc3-appd.json: every "type": "native" entry with
     details.path (its exe in the package) and details.project (the .csproj that builds it, relative to the file).
-    Adding one is a one-line edit of that file; no project, manifest or script names it. tools/native-apps.cs (a file-based app) reads it.
+    Adding one is a one-line edit of that file; no project, manifest or script names it.
+    tools/native-apps.cs (a file-based C# app) does the work: publishing, the manifest and the .appinstaller.
   -->
-  <Target Name="_ReadNativeApps">
-    <Exec Command="dotnet run --file &quot;$(MSBuildProjectDirectory)\tools\native-apps.cs&quot; -- list &quot;$(MSBuildProjectDirectory)\fdc3-appd.json&quot;" ConsoleToMSBuild="true" StandardOutputImportance="low">
-      <Output TaskParameter="ConsoleOutput" ItemName="_NativeAppLine" />
-    </Exec>
-    <ItemGroup>
-      <NativeApp Include="$([System.String]::Copy('%(_NativeAppLine.Identity)').Split('|')[0])" Condition="$([System.String]::Copy('%(_NativeAppLine.Identity)').Contains('|'))">
-        <Exe>$([System.String]::Copy('%(_NativeAppLine.Identity)').Split('|')[1])</Exe>
-        <Project>$([System.String]::Copy('%(_NativeAppLine.Identity)').Split('|')[2])</Project>
-      </NativeApp>
-    </ItemGroup>
-  </Target>
 
-  <!-- Publishes every native app's project (self-contained, win-x64) into NativeAppsPublishDir. CI calls this
+  <!-- Publishes every native app (self-contained, win-x64) into NativeAppsPublishDir, next to Bermuda. CI calls this
        for tagged releases; CreateMsix calls it unless MsixInputDir is given. -->
-  <Target Name="PublishNativeApps" DependsOnTargets="_ReadNativeApps">
+  <Target Name="PublishNativeApps">
     <Error Condition="'$(NativeAppsPublishDir)' == ''" Text="Set NativeAppsPublishDir." />
-    <Error Condition="'%(NativeApp.Identity)' != '' and '%(NativeApp.Project)' == ''" Text="Native app '%(NativeApp.Identity)' in fdc3-appd.json has no details.project, so it cannot be built into the package." />
-    <MSBuild Condition="'%(NativeApp.Project)' != ''" Projects="%(NativeApp.Project)" Targets="Restore;Publish" Properties="Configuration=$(Configuration);RuntimeIdentifier=win-x64;SelfContained=true;PublishDir=$(NativeAppsPublishDir);PublishSingleFile=false;PublishReadyToRun=false" />
+    <Exec Command="dotnet run --file &quot;$(MSBuildProjectDirectory)\tools\native-apps.cs&quot; -- publish &quot;$(MSBuildProjectDirectory)\fdc3-appd.json&quot; &quot;$(NativeAppsPublishDir.TrimEnd('\'))&quot; $(Configuration)" />
   </Target>
 
   <!--
@@ -149,7 +138,7 @@
     Usage:
       dotnet msbuild src/Bermuda -t:CreateMsix -p:Configuration=Release
   -->
-  <Target Name="CreateMsix" DependsOnTargets="_ReadNativeApps">
+  <Target Name="CreateMsix">
 
     <PropertyGroup>
       <_PublishDir Condition="'$(MsixInputDir)' == ''">$(MSBuildProjectDirectory)\..\..\artifacts\publish\</_PublishDir>
@@ -166,7 +155,6 @@
     <!-- The native side apps listed in fdc3-appd.json are more applications of this package: publish them into
          the same folder (their shared runtime and library files are identical, so the folder just merges). -->
     <MSBuild Condition="'$(MsixInputDir)' == ''" Projects="$(MSBuildProjectFullPath)" Targets="PublishNativeApps" Properties="Configuration=$(Configuration);NativeAppsPublishDir=$(_PublishDir)" />
-    <Error Condition="'%(NativeApp.Identity)' != '' and !Exists('$(_PublishDir)%(NativeApp.Exe)')" Text="'$(_PublishDir)' has no %(NativeApp.Exe), the executable of native app '%(NativeApp.Identity)' in fdc3-appd.json. Publish its project (self-contained, win-x64) into the same folder." />
 
     <!-- 2. Prepare a clean staging directory -->
     <RemoveDir Directories="$(_StagingDir)" />
@@ -179,16 +167,10 @@
     <Copy SourceFiles="@(_PublishedFiles)" DestinationFolder="$(_StagingDir)%(RecursiveDir)" SkipUnchangedFiles="false" />
 
     <!-- 4. Stage the manifest — winapp finds it in the input folder as appxmanifest.xml.
-         The Identity Version is stamped from MsixVersion: Windows compares that value, not the
-         file name, to decide whether an .appinstaller update is newer. -->
-    <Error Condition="!$([System.Text.RegularExpressions.Regex]::IsMatch('$(MsixVersion)', '^\d+\.\d+\.\d+\.\d+$'))" Text="MsixVersion must have four parts (e.g. 1.2.3.0), got '$(MsixVersion)'." />
-    <PropertyGroup>
-      <_ManifestText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Package.appxmanifest'))</_ManifestText>
-      <_ManifestText>$([System.Text.RegularExpressions.Regex]::Replace('$(_ManifestText)', '(?s)(&lt;Identity[^&gt;]*?Version=")[^"]*(")', '${1}$(MsixVersion)${2}'))</_ManifestText>
-    </PropertyGroup>
-    <WriteLinesToFile File="$(_StagingDir)appxmanifest.xml" Lines="$(_ManifestText)" Overwrite="true" />
-    <!-- One <Application> per native app in fdc3-appd.json goes where the manifest has the @NATIVE_APPS@ marker. -->
-    <Exec Command="dotnet run --file &quot;$(MSBuildProjectDirectory)\tools\native-apps.cs&quot; -- patch &quot;$(MSBuildProjectDirectory)\fdc3-appd.json&quot; &quot;$(_StagingDir)appxmanifest.xml&quot;" />
+         The tool stamps the Identity Version from MsixVersion (Windows compares that value, not the
+         file name, to decide whether an .appinstaller update is newer) and adds one <Application> per native
+         app in fdc3-appd.json. -->
+    <Exec Command="dotnet run --file &quot;$(MSBuildProjectDirectory)\tools\native-apps.cs&quot; -- manifest &quot;$(MSBuildProjectDirectory)\fdc3-appd.json&quot; &quot;$(MSBuildProjectDirectory)\Package.appxmanifest&quot; &quot;$(_StagingDir)appxmanifest.xml&quot; $(MsixVersion)" />
 
     <!-- 5. Copy asset images -->
     <ItemGroup>
@@ -206,15 +188,7 @@
     <Exec Command="winapp pack &quot;$(_StagingDir.TrimEnd('\'))&quot; --manifest &quot;$(_StagingDir)appxmanifest.xml&quot; --output &quot;$(_MsixPath)&quot; --skip-pri $(_WinappSignArgs)" WorkingDirectory="$(MSBuildProjectDirectory)" />
 
     <!-- 7. Optionally write the .appinstaller that points installed copies at this MSIX -->
-    <PropertyGroup Condition="'$(AppInstallerUrl)' != ''">
-      <_AppInstallerPath>$(MsixOutputDir)Bermuda.appinstaller</_AppInstallerPath>
-      <_IdentityName>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', 'Name="([^"]*)"').Groups[1].Value)</_IdentityName>
-      <_IdentityPublisher>$([System.Text.RegularExpressions.Regex]::Match('$(_ManifestText)', 'Publisher="([^"]*)"').Groups[1].Value)</_IdentityPublisher>
-      <_AppInstallerText>$([System.IO.File]::ReadAllText('$(MSBuildProjectDirectory)\Bermuda.appinstaller.template'))</_AppInstallerText>
-      <_AppInstallerText>$(_AppInstallerText.Replace('@VERSION@', '$(MsixVersion)').Replace('@NAME@', '$(_IdentityName)').Replace('@PUBLISHER@', '$(_IdentityPublisher)').Replace('@MSIX_URL@', '$(MsixUrl)').Replace('@APPINSTALLER_URL@', '$(AppInstallerUrl)'))</_AppInstallerText>
-    </PropertyGroup>
-    <Error Condition="'$(AppInstallerUrl)' != '' and '$(MsixUrl)' == ''" Text="AppInstallerUrl needs MsixUrl as well." />
-    <WriteLinesToFile Condition="'$(AppInstallerUrl)' != ''" File="$(_AppInstallerPath)" Lines="$(_AppInstallerText)" Overwrite="true" />
+    <Exec Condition="'$(AppInstallerUrl)' != ''" Command="dotnet run --file &quot;$(MSBuildProjectDirectory)\tools\native-apps.cs&quot; -- appinstaller &quot;$(_StagingDir)appxmanifest.xml&quot; &quot;$(MSBuildProjectDirectory)\Bermuda.appinstaller.template&quot; &quot;$(MsixOutputDir)Bermuda.appinstaller&quot; $(MsixVersion) &quot;$(MsixUrl)&quot; &quot;$(AppInstallerUrl)&quot;" />
 
     <Message Text="&#xA;MSIX: $(_MsixPath)&#xA;" Importance="high" />
 
