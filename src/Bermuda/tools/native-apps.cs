@@ -136,13 +136,15 @@ static int WriteManifest(List<NativeApp> apps, string sourcePath, string destPat
             new XAttribute("Id", app.Key),
             new XAttribute("Executable", app.Exe),
             new XAttribute("EntryPoint", "Windows.FullTrustApplication"),
+            new XText("\n      "),
             new XElement(uap + "VisualElements",
                 new XAttribute("DisplayName", app.Title),
                 new XAttribute("Description", app.Description),
                 new XAttribute("BackgroundColor", "transparent"),
                 new XAttribute("Square150x150Logo", @"Assets\Square150x150Logo.png"),
                 new XAttribute("Square44x44Logo", @"Assets\Square44x44Logo.png"),
-                new XAttribute("AppListEntry", "none")));
+                new XAttribute("AppListEntry", "none")),
+            new XText("\n    "));
 
         applications.Add(new XText("\n    "), new XComment($" Native FDC3 side app {app.AppId}, from fdc3-appd.json "), new XText("\n    "), application, new XText("\n  "));
     }
