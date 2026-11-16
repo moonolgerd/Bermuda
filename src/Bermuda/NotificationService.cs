@@ -49,6 +49,12 @@ internal static class NotificationService
     private static string? _registrationError;
 
     /// <summary>
+    /// A toast click that Windows delivered to a second Bermuda process, which forwarded it to this one
+    /// (see <see cref="App"/>'s single-instance handling), as if it had arrived through the manager here.
+    /// </summary>
+    public static void HandleForwarded(AppNotificationActivatedEventArgs args) => Dispatch(args.Arguments, args.UserInput);
+
+    /// <summary>
     /// Turns what Windows hands back on a click (the clicked element's arguments plus any reply text)
     /// into the event pushed to the web app. Shared by real clicks and <see cref="Simulate"/>.
     /// </summary>
