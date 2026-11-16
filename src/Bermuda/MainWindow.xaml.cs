@@ -86,6 +86,13 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         // A toast (or one of its buttons) was clicked: surface the window and tell the web app.
         NotificationService.Activated += OnNotificationActivated;
         WindowRegistry.Add(this);
+        // With the tray icon on, closing the main window only hides it; the tray's Quit is the way out.
+        Closing += (_, e) =>
+        {
+            if (!WindowRegistry.HidesToTray(this)) return;
+            e.Cancel = true;
+            HideWindow();
+        };
         Closed += (_, _) =>
         {
             _closed = true;

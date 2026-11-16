@@ -259,6 +259,7 @@ export interface WindowControllerHostObject {
   readonly IsMaximized: Promise<boolean>;
   readonly IsMinimized: Promise<boolean>;
   readonly IsFocused: Promise<boolean>;
+  readonly IsVisible: Promise<boolean>;
   readonly Left: Promise<number>;
   readonly Top: Promise<number>;
   readonly Width: Promise<number>;

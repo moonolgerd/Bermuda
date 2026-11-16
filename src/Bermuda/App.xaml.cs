@@ -51,11 +51,54 @@ public partial class App : Application
             StartNativeApps(config, directory);
         }
 
+        // Tray icon (TRAY_ENABLED, default true): the app then lives on with no window, so it also keeps
+        // running when the last window is hidden.
+        WindowRegistry.TrayEnabled = !(bool.TryParse(config["TRAY_ENABLED"], out var trayEnabled) && !trayEnabled);
+        if (WindowRegistry.TrayEnabled)
+        {
+            try
+            {
+                _tray = new TrayService(() => { if (directory.Find(MainAppId) is { } main) launcher.Open(main); });
+                // Logging off or shutting down must not be stopped by the main window hiding itself.
+                SessionEnding += (_, _) => WindowRegistry.MarkQuitting();
+            }
+            catch (Exception ex)
+            {
+                // No tray means no way to bring a hidden window back, so fall back to closing normally.
+                System.Diagnostics.Debug.WriteLine($"Tray icon failed to start: {ex}");
+                WindowRegistry.TrayEnabled = false;
+            }
+        }
+
         var window = new MainWindow(config, fdc3, MainAppId);
+        window.ShowActivated = !StartsInBackground();
         window.Show();
+        // Started at sign-in (or with --background): sit in the tray, no window until the user asks for it.
+        if (!window.ShowActivated) window.HideWindow();
 
         // The launch itself may ask for an app on top of the main window (e.g. a jump list task).
         HandleLaunchArguments(Environment.GetCommandLineArgs().Skip(1).ToArray(), activateMainOtherwise: false);
+    }
+
+    private TrayService? _tray;
+
+    /// <summary>
+    /// True when this launch should start hidden in the tray: the MSIX startup task (sign-in) or --background.
+    /// Never without the tray, since there would be no way to bring the window back.
+    /// </summary>
+    private static bool StartsInBackground()
+    {
+        if (!WindowRegistry.TrayEnabled) return false;
+        if (Environment.GetCommandLineArgs().Any(a => string.Equals(a, "--background", StringComparison.OrdinalIgnoreCase)))
+            return true;
+        try
+        {
+            return AppInstance.GetCurrent().GetActivatedEventArgs().Kind == ExtendedActivationKind.StartupTask;
+        }
+        catch
+        {
+            return false;
+        }
     }
 
     /// <summary>
@@ -176,6 +219,7 @@ public partial class App : Application
 
     protected override void OnExit(ExitEventArgs e)
     {
+        _tray?.Dispose();
         _nativeApps?.Dispose();
 
         if (_grpcHost is { } grpcHost)

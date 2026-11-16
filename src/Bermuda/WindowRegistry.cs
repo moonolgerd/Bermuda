@@ -17,6 +17,18 @@ internal static class WindowRegistry
     /// </summary>
     public static bool QuitWhenLastWindowCloses { get; set; } = true;
 
+    /// <summary>
+    /// Whether the notification-area icon is on (TRAY_ENABLED, default true). When it is, closing the main window
+    /// hides it instead, and Quit in the tray menu is the way out.
+    /// </summary>
+    public static bool TrayEnabled { get; set; }
+
+    /// <summary>Set once the app is ending (Quit, sign-out), so closing a window really closes it.</summary>
+    public static bool Quitting { get; private set; }
+
+    /// <summary>True when closing <paramref name="window"/> should only hide it: it is the main window and the tray can bring it back.</summary>
+    public static bool HidesToTray(MainWindow window) => TrayEnabled && !Quitting && Main == window;
+
     public static IReadOnlyList<MainWindow> All => Windows;
 
     /// <summary>The app's main window: the oldest one still open, or null when none is.</summary>
@@ -39,5 +51,20 @@ internal static class WindowRegistry
     }
 
     /// <summary>Ends the app (runs <c>App.OnExit</c>), whatever windows are still open.</summary>
-    public static void Quit() => Application.Current?.Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
+    public static void Quit()
+    {
+        Quitting = true;
+        Application.Current?.Dispatcher.BeginInvoke(() => Application.Current.Shutdown());
+    }
+
+    /// <summary>Tray left-click: hides the main window when it is showing (the click itself takes focus, so focus is no signal), otherwise brings it forward.</summary>
+    public static void ToggleMain()
+    {
+        if (Main is not { } window) return;
+        if (window.IsVisible && !window.IsMinimized) window.HideWindow();
+        else ActivateMain();
+    }
+
+    /// <summary>Marks the app as ending without shutting it down (the OS session is ending).</summary>
+    public static void MarkQuitting() => Quitting = true;
 }
