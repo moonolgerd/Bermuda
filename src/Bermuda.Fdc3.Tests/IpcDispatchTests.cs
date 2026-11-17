@@ -15,6 +15,7 @@ public class IpcDispatchTests
 
     [Theory]
     [InlineData("ping", typeof(IHostCommands))]
+    [InlineData("window.openChild", typeof(IWindowCommands))]
     [InlineData("fdc3.getInfo", typeof(IFdc3Commands))]
     [InlineData("fdc3.raiseIntent", typeof(IFdc3Commands))] // "Async" suffix dropped
     [InlineData("fdc3.getIntentResult", typeof(IFdc3Commands))]
@@ -31,6 +32,17 @@ public class IpcDispatchTests
     {
         var discovered = IpcContract.IpcContract.Commands.Count(c => c.Interface == typeof(IFdc3Commands));
         Assert.Equal(typeof(IFdc3Commands).GetMethods().Length, discovered);
+    }
+
+    [Fact]
+    public async Task Window_openChild_binds_url_width_and_height()
+    {
+        var window = new RecordingWindow();
+
+        var result = await Invoke(window, "window.openChild", """{ "url": "/child", "width": 640, "height": 480 }""");
+
+        Assert.Null(result);
+        Assert.Equal(new OpenChildRequest("/child", 640, 480), window.Last);
     }
 
     [Fact]
@@ -80,6 +92,13 @@ public class IpcDispatchTests
         var error = await Assert.ThrowsAsync<Fdc3Exception>(() =>
             Invoke(a.Fdc3, "fdc3.joinUserChannel", """{ "channelId": "nope" }"""));
         Assert.Equal(Fdc3Errors.NoChannelFound, error.Message);
+    }
+
+    private sealed class RecordingWindow : IWindowCommands
+    {
+        public OpenChildRequest? Last { get; private set; }
+
+        public void OpenChild(OpenChildRequest request) => Last = request;
     }
 
     private static Task<object?> Invoke(object target, string name, string? payload) =>

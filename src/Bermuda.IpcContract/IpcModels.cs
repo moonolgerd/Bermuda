@@ -45,6 +45,23 @@ public sealed record HostResponse(string Id, object? Result);
 public sealed record WindowBounds(int Left, int Top, int Width, int Height);
 
 /// <summary>
+/// Input to <c>window.openChild</c>. <c>Url</c> is absolute or relative to the calling page
+/// and must be same-origin; <c>Width</c> and <c>Height</c> are the child window's outer size.
+/// </summary>
+public sealed record OpenChildRequest(string Url, int Width, int Height);
+
+/// <summary>
+/// Commands for the page's own host window (<c>window.*</c>). Implemented by
+/// <c>MainWindow</c> (see <c>IWindowController</c>).
+/// </summary>
+[IpcCommands("window")]
+public interface IWindowCommands
+{
+    /// <summary>Opens a same-origin child window owned by this one. A cross-origin URL is refused.</summary>
+    void OpenChild(OpenChildRequest request);
+}
+
+/// <summary>
 /// Shape returned by the frontend's <c>bermudaHost.window.getState()</c>, which
 /// builds it by combining several <c>WindowScriptHost</c> (windowController)
 /// properties — see the [IpcType] doc comment for why that combining can't

@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs'
+import type { DesktopAgent } from '@finos/fdc3-standard'
 import type { Page } from '@playwright/test'
 import { expect, test } from './fixtures'
 
@@ -294,5 +295,259 @@ test.describe('taskbar overlay badge', () => {
     await inPage(page, 'await bermudaHost.window.setOverlay(renderCountBadge(1), "x")')
     const clearAfterSet = await attempt(page, 'chrome.webview.hostObjects.windowController.ClearOverlayIcon()')
     expect(clearAfterSet.ok).toBe(true)
+  })
+})
+
+async function closeHostPage(popup: Page) {
+  if (popup.isClosed()) return
+  const closed = popup.waitForEvent('close')
+  await popup.evaluate(() => window.chrome.webview.hostObjects.windowController.Close()).catch(() => {})
+  await closed
+}
+
+type CdpTarget = { url?: string; webSocketDebuggerUrl?: string }
+
+function cdpPort() {
+  return process.env.CDP_PORT ?? '9222'
+}
+
+async function frameText(data: unknown): Promise<string> {
+  if (typeof data === 'string') return data
+  if (data instanceof Blob) return data.text()
+  if (data instanceof ArrayBuffer) return new TextDecoder().decode(data)
+  return String(data)
+}
+
+async function listTargets(): Promise<CdpTarget[]> {
+  return (await fetch(`http://127.0.0.1:${cdpPort()}/json`).then((response) => response.json())) as CdpTarget[]
+}
+
+/**
+ * window.open's WebView2 target never becomes a Playwright page on the opener's CDP connection
+ * (that connection only sees a blank target that closes). Drive the probe through its own
+ * target websocket instead.
+ */
+class ProbeSession {
+  private nextId = 0
+  private readonly pending = new Map<number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>()
+
+  private constructor(private readonly ws: WebSocket) {
+    ws.addEventListener('message', (event) => {
+      void frameText(event.data).then((text) => {
+        const message = JSON.parse(text) as {
+          id?: number
+          error?: { message?: string }
+          result?: {
+            result?: { value?: unknown }
+            exceptionDetails?: { text?: string; exception?: { description?: string } }
+          }
+        }
+        if (message.id === undefined) return
+        const waiter = this.pending.get(message.id)
+        if (!waiter) return
+        this.pending.delete(message.id)
+        const details = message.result?.exceptionDetails
+        if (message.error) waiter.reject(new Error(message.error.message ?? 'cdp error'))
+        else if (details) waiter.reject(new Error(details.exception?.description ?? details.text ?? 'evaluate failed'))
+        else waiter.resolve(message.result?.result?.value)
+      })
+    })
+  }
+
+  static async open(urlFragment: string): Promise<ProbeSession> {
+    const deadline = Date.now() + 15_000
+    let socketUrl: string | undefined
+    while (Date.now() < deadline) {
+      socketUrl = (await listTargets()).find((target) => target.url?.includes(urlFragment))?.webSocketDebuggerUrl
+      if (socketUrl) break
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    if (!socketUrl) throw new Error('child window did not load')
+
+    const ws = new WebSocket(socketUrl)
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(() => reject(new Error('cdp websocket timed out')), 5_000)
+      ws.addEventListener(
+        'open',
+        () => {
+          clearTimeout(timer)
+          resolve()
+        },
+        { once: true },
+      )
+      ws.addEventListener(
+        'error',
+        () => {
+          clearTimeout(timer)
+          reject(new Error('cdp websocket failed'))
+        },
+        { once: true },
+      )
+    })
+    return new ProbeSession(ws)
+  }
+
+  evaluate<T>(expression: string): Promise<T> {
+    const id = ++this.nextId
+    const result = new Promise<T>((resolve, reject) => {
+      const timer = setTimeout(() => {
+        this.pending.delete(id)
+        reject(new Error('cdp evaluate timed out'))
+      }, 5_000)
+      this.pending.set(id, {
+        resolve: (value) => {
+          clearTimeout(timer)
+          resolve(value as T)
+        },
+        reject: (error) => {
+          clearTimeout(timer)
+          reject(error)
+        },
+      })
+    })
+    this.ws.send(
+      JSON.stringify({
+        id,
+        method: 'Runtime.evaluate',
+        params: { expression, awaitPromise: true, returnByValue: true },
+      }),
+    )
+    return result
+  }
+
+  /** window.close() is handled by the host. The socket dying as the window goes away is success. */
+  async close() {
+    await this.evaluate('window.close()').catch(() => {})
+    this.ws.close()
+  }
+
+  async gone(urlFragment: string) {
+    const deadline = Date.now() + 10_000
+    while (Date.now() < deadline) {
+      if (!(await listTargets()).some((target) => target.url?.includes(urlFragment))) return
+      await new Promise((resolve) => setTimeout(resolve, 200))
+    }
+    throw new Error('child window stayed open')
+  }
+}
+
+test.describe('child windows', () => {
+  test('openChild opens a sized same-origin window as a new instance of this app', async ({ page }) => {
+    const parent = await page.evaluate(async () => {
+      const metadata = (await (window.fdc3 as DesktopAgent).getInfo()).appMetadata
+      return { appId: metadata.appId, instanceId: metadata.instanceId }
+    })
+
+    let child: Page | undefined
+    try {
+      ;[child] = await Promise.all([
+        page.context().waitForEvent('page'),
+        inPage(page, "await bermudaHost.window.openChild({ url: '/fdc3-probe.html', width: 720, height: 500 })"),
+      ])
+      await expect(child.locator('#status')).toHaveText('fdc3 ready')
+      const info = await child.evaluate(async () => {
+        const metadata = (await (window.fdc3 as DesktopAgent).getInfo()).appMetadata
+        const controller = window.chrome.webview.hostObjects.windowController
+        return {
+          appId: metadata.appId,
+          instanceId: metadata.instanceId,
+          width: await controller.Width,
+          height: await controller.Height,
+          // openChild navigates the child itself, so there is no window.opener. window.open covers that.
+          hasOpener: window.opener !== null,
+        }
+      })
+      expect(info.appId).toBe(parent.appId)
+      expect(info.instanceId).toBeTruthy()
+      expect(info.instanceId).not.toBe(parent.instanceId)
+      expect(info.width).toBe(720)
+      expect(info.height).toBe(500)
+      expect(info.hasOpener).toBe(false)
+    } finally {
+      if (child) await closeHostPage(child)
+    }
+  })
+
+  test('openChild rejects a cross-origin url', async ({ page }) => {
+    const before = page.context().pages().length
+    const crossOrigin = await attempt(
+      page,
+      "bermudaHost.window.openChild({ url: 'https://example.com/', width: 400, height: 300 })",
+    )
+    const scriptUrl = await attempt(
+      page,
+      "bermudaHost.window.openChild({ url: 'javascript:alert(1)', width: 400, height: 300 })",
+    )
+
+    expect(crossOrigin.ok).toBe(false)
+    expect(scriptUrl.ok).toBe(false)
+    if (!crossOrigin.ok) expect(crossOrigin.message).toMatch(/same-origin/i)
+    expect(page.context().pages().length).toBe(before)
+  })
+
+  test('window.open stays same-origin and keeps window.opener', async ({ page }) => {
+    test.setTimeout(60_000)
+    const before = page.context().pages().length
+    await page.evaluate(() => {
+      window.open('https://example.com/')
+    })
+    expect(page.context().pages().length).toBe(before)
+
+    let child: ProbeSession | undefined
+    try {
+      const probe = ProbeSession.open('via=open')
+      await page.evaluate(() => {
+        window.open(`${location.origin}/fdc3-probe.html?via=open`, '_blank', 'width=640,height=480')
+      })
+      child = await probe
+      await expect
+        .poll(() => child?.evaluate<string | null>(`document.getElementById('status')?.textContent ?? null`), {
+          timeout: 10_000,
+        })
+        .toBe('fdc3 ready')
+      const openerHref = await child.evaluate<string | null>(`window.opener?.location.href ?? null`)
+      expect(openerHref).toBe(page.url())
+      // width/height on window.open size the WPF window. The viewport is that size minus the
+      // frame, and it stays under the 800x600 default used when the features omit a size.
+      const box = await child.evaluate<{ w: number; h: number }>(`({ w: window.innerWidth, h: window.innerHeight })`)
+      expect(box.w).toBeGreaterThan(500)
+      expect(box.w).toBeLessThanOrEqual(640)
+      expect(box.h).toBeGreaterThan(360)
+      expect(box.h).toBeLessThanOrEqual(480)
+    } finally {
+      await child?.close()
+    }
+  })
+
+  test('a child window closes with the window that owns it', async ({ page }) => {
+    test.setTimeout(60_000)
+    let child: Page | undefined
+    let grandchild: ProbeSession | undefined
+    try {
+      ;[child] = await Promise.all([
+        page.context().waitForEvent('page'),
+        inPage(page, "await bermudaHost.window.openChild({ url: '/fdc3-probe.html', width: 720, height: 520 })"),
+      ])
+      await expect(child.locator('#status')).toHaveText('fdc3 ready')
+      const probe = ProbeSession.open('via=grandchild')
+      await child.evaluate(() => {
+        window.open(`${location.origin}/fdc3-probe.html?via=grandchild`, '_blank', 'width=500,height=400')
+      })
+      grandchild = await probe
+      await expect
+        .poll(() => grandchild?.evaluate<string | null>(`document.getElementById('status')?.textContent ?? null`), {
+          timeout: 10_000,
+        })
+        .toBe('fdc3 ready')
+
+      const childClosed = child.waitForEvent('close')
+      await child.evaluate(() => window.chrome.webview.hostObjects.windowController.Close()).catch(() => {})
+      await childClosed
+      await grandchild.gone('via=grandchild')
+      grandchild = undefined
+    } finally {
+      await grandchild?.close()
+      if (child) await closeHostPage(child)
+    }
   })
 })

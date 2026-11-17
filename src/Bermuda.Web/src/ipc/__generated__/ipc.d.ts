@@ -187,6 +187,12 @@ export interface NotificationButton {
     label: string;
 }
 
+export interface OpenChildRequest {
+    height: number;
+    url: string;
+    width: number;
+}
+
 export interface PingResult {
     pong: boolean;
 }
@@ -310,6 +316,9 @@ export interface IpcMethods {
     raiseIntentForContext: (payload: Fdc3RaiseIntentForContextRequest, ) => Promise<Fdc3IntentResolutionInfo>;
     sendIntentResult: (payload: Fdc3SendIntentResultRequest, ) => Promise<void>;
     unsubscribe: (payload: Fdc3ListenerIdRequest, ) => Promise<void>;
+  };
+  window: {
+    openChild: (payload: OpenChildRequest, ) => Promise<void>;
   };
 }
 

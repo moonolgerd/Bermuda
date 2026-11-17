@@ -44,6 +44,11 @@ public static class IpcContract
 /// <summary>Thrown when an <c>invoke()</c> payload doesn't bind to the command's parameter.</summary>
 public sealed class IpcInvalidPayloadException() : Exception("InvalidArguments");
 
+/// <summary>
+/// A command refused its input. The message is safe to return to the page as <c>{ error }</c>.
+/// </summary>
+public sealed class IpcRejectedException(string message) : Exception(message);
+
 /// <summary>One method on an <see cref="IpcCommandsAttribute"/> interface.</summary>
 public sealed record IpcCommand(string Name, Type Interface, MethodInfo Method)
 {
