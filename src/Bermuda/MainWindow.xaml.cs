@@ -85,6 +85,14 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
 
         // A toast (or one of its buttons) was clicked: surface the window and tell the web app.
         NotificationService.Activated += OnNotificationActivated;
+        WindowRegistry.Add(this);
+        // With the tray icon on, closing the main window only hides it; the tray's Quit is the way out.
+        Closing += (_, e) =>
+        {
+            if (!WindowRegistry.HidesToTray(this)) return;
+            e.Cancel = true;
+            HideWindow();
+        };
         Closed += (_, _) =>
         {
             _closed = true;
@@ -95,13 +103,15 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
             // this one, so release its page explicitly — otherwise it lingers
             // as an orphaned, never-rendering CDP target.
             _webView.Dispose();
+            // Last: may end the app, which tears down everything above.
+            WindowRegistry.Remove(this);
         };
     }
 
     // Only the app's main window reacts to toast clicks (every window is subscribed to the static event).
     private void OnNotificationActivated(NotificationActivation activation) => Dispatcher.Invoke(() =>
     {
-        if (_closed || Application.Current.MainWindow != this) return;
+        if (_closed || WindowRegistry.Main != this) return;
 
         ShowWindow();
         Activate();

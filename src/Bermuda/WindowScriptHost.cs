@@ -27,6 +27,7 @@ public sealed class WindowScriptHost
     public bool IsMaximized => _window.IsMaximized;
     public bool IsMinimized => _window.IsMinimized;
     public bool IsFocused => _window.IsFocused;
+    public bool IsVisible => _window.IsVisible;
 
     public int Left => _window.Left;
     public int Top => _window.Top;

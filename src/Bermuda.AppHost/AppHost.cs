@@ -24,6 +24,8 @@ var pipeName = builder.Configuration["FDC3_GRPC_PIPE"];
 var host = builder.AddProject<Projects.Bermuda>("host")
     .WithEnvironment("WEB_URL", web.GetEndpoint("http"))
     .WithEnvironment("CDP_PORT", cdpPort)
+    // Keep this run from handing over to (or being taken over by) an installed Bermuda.
+    .WithEnvironment("SINGLE_INSTANCE_KEY", "Bermuda.AppHost")
     .WaitFor(web)
     .WaitFor(api);
 if (!string.IsNullOrWhiteSpace(pipeName)) host.WithEnvironment("FDC3_GRPC_PIPE", pipeName);

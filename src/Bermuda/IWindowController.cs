@@ -19,6 +19,9 @@ public interface IWindowController
     bool IsMinimized { get; }
     bool IsFocused { get; }
 
+    /// <summary>False while the window is hidden (for example in the tray).</summary>
+    bool IsVisible { get; }
+
     int Left { get; }
     int Top { get; }
     int Width { get; }

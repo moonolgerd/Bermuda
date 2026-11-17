@@ -10,6 +10,7 @@
     <PackageVersion Include="Microsoft.Extensions.Configuration.Json" Version="10.0.0" />
     <PackageVersion Include="Microsoft.Extensions.Configuration.EnvironmentVariables" Version="10.0.0" />
     <PackageVersion Include="WPF-UI" Version="4.2.0" />
+    <PackageVersion Include="H.NotifyIcon.Wpf" Version="2.4.1" />
     <PackageVersion Include="Microsoft.WindowsAppSDK.Foundation" Version="2.6.5" />
 
     <!-- src/Bermuda.Api -->

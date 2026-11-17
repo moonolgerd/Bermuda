@@ -17,7 +17,14 @@ public sealed class WindowAppLauncher(IConfiguration configuration) : IFdc3AppLa
     /// <summary>Starts native apps; null while the gRPC pipe is off, because they could not connect anyway.</summary>
     public NativeAppHost? NativeApps { get; set; }
 
-    public void Launch(AppDefinition app, string instanceId)
+    public void Launch(AppDefinition app, string instanceId) => Open(app, instanceId);
+
+    /// <summary>
+    /// Opens an app's window (or starts its native exe). <paramref name="instanceId"/> is set when FDC3 is
+    /// waiting for the app to connect; it is null when the user opens the app directly (jump list, second
+    /// launch), in which case the app simply connects as a new instance.
+    /// </summary>
+    public void Open(AppDefinition app, string? instanceId = null)
     {
         if (Agent is null) throw new InvalidOperationException("Launcher not attached to a desktop agent.");
         if (app.Type == "native" && NativeApps is not null)

@@ -40,6 +40,7 @@
     <PackageReference Include="Microsoft.Extensions.Configuration.Json" />
     <PackageReference Include="Microsoft.Extensions.Configuration.EnvironmentVariables" />
     <PackageReference Include="WPF-UI" />
+    <PackageReference Include="H.NotifyIcon.Wpf" />
     <PackageReference Include="Microsoft.WindowsAppSDK.Foundation" />
   </ItemGroup>
 
