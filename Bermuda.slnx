@@ -11,5 +11,6 @@
     <Project Path="src/Bermuda.NativeApp/Bermuda.NativeApp.csproj" />
     <Project Path="src/Bermuda.ServiceDefaults/Bermuda.ServiceDefaults.csproj" />
     <Project Path="src/Bermuda/Bermuda.csproj" />
+    <Project Path="src/Bermuda.Tests/Bermuda.Tests.csproj" />
   </Folder>
 </Solution>

@@ -1,0 +1,37 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <IsPackable>false</IsPackable>
+    <IsTestProject>true</IsTestProject>
+    <RootNamespace>Bermuda.Tests</RootNamespace>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.NET.Test.Sdk" />
+    <PackageReference Include="xunit" />
+    <PackageReference Include="xunit.runner.visualstudio" PrivateAssets="all" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="Xunit" />
+  </ItemGroup>
+
+  <!--
+    LaunchArguments and JumpListCatalog are the unpackaged-vs-packaged decision, and they do not
+    touch WPF. Compiling them here (instead of referencing the WPF exe) keeps the Windows App SDK
+    bootstrap out of the test host.
+  -->
+  <ItemGroup>
+    <ProjectReference Include="..\Bermuda.Fdc3\Bermuda.Fdc3.csproj" />
+    <Compile Include="..\Bermuda\LaunchArguments.cs" Link="LaunchArguments.cs" />
+    <Compile Include="..\Bermuda\JumpListCatalog.cs" Link="JumpListCatalog.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\Bermuda\fdc3-appd.json" Link="fdc3-appd.json" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
+</Project>
