@@ -29,3 +29,6 @@ appsettings.*.json
 # OS
 Thumbs.db
 .DS_Store
+
+# Development certificate
+devcert.pfx
