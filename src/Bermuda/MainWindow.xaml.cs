@@ -74,7 +74,6 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         // A remote debugging port already means "dev/test run"; test-only commands ride on that.
         _bridge = new HostBridge(
             () => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."),
-            this,
             testHooks: _cdpPort > 0);
 
         // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native

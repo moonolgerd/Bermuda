@@ -264,6 +264,7 @@ export interface WindowControllerHostObject {
   readonly Top: Promise<number>;
   readonly Width: Promise<number>;
   readonly Height: Promise<number>;
+  readonly IsFlashing: Promise<boolean>;
   Minimize(): Promise<void>;
   Maximize(): Promise<void>;
   Restore(): Promise<void>;
@@ -277,6 +278,8 @@ export interface WindowControllerHostObject {
   ClearOverlayIcon(): Promise<void>;
   SetProgressState(state: string): Promise<void>;
   SetProgressValue(value: number): Promise<void>;
+  Flash(): Promise<void>;
+  StopFlash(): Promise<void>;
 }
 
 export interface IpcMethods {
@@ -310,11 +313,6 @@ export interface IpcMethods {
     raiseIntentForContext: (payload: Fdc3RaiseIntentForContextRequest, ) => Promise<Fdc3IntentResolutionInfo>;
     sendIntentResult: (payload: Fdc3SendIntentResultRequest, ) => Promise<void>;
     unsubscribe: (payload: Fdc3ListenerIdRequest, ) => Promise<void>;
-  };
-  window: {
-    flash: () => Promise<void>;
-    isFlashing: () => Promise<boolean>;
-    stopFlash: () => Promise<void>;
   };
 }
 

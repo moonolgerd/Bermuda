@@ -301,7 +301,7 @@ test.describe('taskbar flash', () => {
   let original: Snapshot
 
   test.beforeEach(async ({ page }) => {
-    await inPage(page, "await bermudaHost.invoke('window.stopFlash')")
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.StopFlash()')
     original = await getState(page)
   })
 
@@ -309,8 +309,8 @@ test.describe('taskbar flash', () => {
   test.afterEach(async ({ page }) => {
     await inPage(
       page,
-      `await bermudaHost.invoke('window.stopFlash')
-       const c = chrome.webview.hostObjects.windowController
+      `const c = chrome.webview.hostObjects.windowController
+       await c.StopFlash()
        await c.Restore()
        await c.Resize(${original.bounds.width}, ${original.bounds.height})
        await c.Move(${original.bounds.left}, ${original.bounds.top})
@@ -318,10 +318,11 @@ test.describe('taskbar flash', () => {
     )
   })
 
-  const isFlashing = (page: Page) => inPage<boolean>(page, "return await bermudaHost.invoke('window.isFlashing')")
+  const isFlashing = (page: Page) =>
+    inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFlashing')
 
   test('window.stopFlash is safe when the taskbar is not flashing', async ({ page }) => {
-    expect(await inPage(page, "return await bermudaHost.invoke('window.stopFlash')")).toBeNull()
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.StopFlash()')
     expect(await isFlashing(page)).toBe(false)
   })
 
@@ -329,10 +330,10 @@ test.describe('taskbar flash', () => {
     await inPage(page, 'await chrome.webview.hostObjects.windowController.Minimize()')
     expect(await inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFocused')).toBe(false)
 
-    expect(await inPage(page, "return await bermudaHost.invoke('window.flash')")).toBeNull()
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Flash()')
     expect(await isFlashing(page)).toBe(true)
 
-    expect(await inPage(page, "return await bermudaHost.invoke('window.stopFlash')")).toBeNull()
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.StopFlash()')
     expect(await isFlashing(page)).toBe(false)
   })
 
@@ -341,25 +342,16 @@ test.describe('taskbar flash', () => {
     const focused = await inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFocused')
     test.skip(!focused, 'This session did not leave the Bermuda window in the foreground.')
 
-    expect(await inPage(page, "return await bermudaHost.invoke('window.flash')")).toBeNull()
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Flash()')
     expect(await isFlashing(page)).toBe(false)
   })
 
-  test('command names are matched case-insensitively', async ({ page }) => {
+  test('bermudaHost.window.flash and stopFlash call the host object', async ({ page }) => {
     await inPage(page, 'await chrome.webview.hostObjects.windowController.Minimize()')
-    expect(await inPage(page, "return await bermudaHost.invoke('WINDOW.FLASH')")).toBeNull()
-    expect(await isFlashing(page)).toBe(true)
-
-    expect(await inPage(page, "return await bermudaHost.invoke('Window.StopFlash')")).toBeNull()
-    expect(await isFlashing(page)).toBe(false)
-  })
-
-  test('bermudaHost.window.flash and stopFlash call the same commands', async ({ page }) => {
-    await inPage(page, 'await chrome.webview.hostObjects.windowController.Minimize()')
-    expect(await inPage(page, 'return await bermudaHost.window.flash()')).toBeNull()
+    await inPage(page, 'await bermudaHost.window.flash()')
     expect(await inPage<boolean>(page, 'return await bermudaHost.window.isFlashing()')).toBe(true)
 
-    expect(await inPage(page, 'return await bermudaHost.window.stopFlash()')).toBeNull()
+    await inPage(page, 'await bermudaHost.window.stopFlash()')
     expect(await inPage<boolean>(page, 'return await bermudaHost.window.isFlashing()')).toBe(false)
   })
 

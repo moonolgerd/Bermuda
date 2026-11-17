@@ -96,11 +96,11 @@ const windowApi = {
    * Flashes the taskbar button until the window is in the foreground or stopFlash() runs.
    * A window that is already in front is left not flashing.
    */
-  flash: () => invoke<void>('window.flash'),
+  flash: () => windowController().Flash(),
   /** Stops taskbar flashing started by flash(). */
-  stopFlash: () => invoke<void>('window.stopFlash'),
+  stopFlash: () => windowController().StopFlash(),
   /** True while the taskbar button is flashing. */
-  isFlashing: () => invoke<boolean>('window.isFlashing'),
+  isFlashing: () => windowController().IsFlashing,
 } as const
 
 export type WindowApi = typeof windowApi
