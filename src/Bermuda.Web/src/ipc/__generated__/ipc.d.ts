@@ -311,6 +311,11 @@ export interface IpcMethods {
     sendIntentResult: (payload: Fdc3SendIntentResultRequest, ) => Promise<void>;
     unsubscribe: (payload: Fdc3ListenerIdRequest, ) => Promise<void>;
   };
+  window: {
+    flash: () => Promise<void>;
+    isFlashing: () => Promise<boolean>;
+    stopFlash: () => Promise<void>;
+  };
 }
 
 export interface IpcHostObjects {

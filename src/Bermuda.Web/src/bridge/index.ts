@@ -92,6 +92,15 @@ const windowApi = {
   setOverlay: (iconPng: string, description = '') => windowController().SetOverlayIcon(iconPng, description),
   /** Sets the taskbar progress bar's state ('none' hides it). */
   setProgressState: (state: TaskbarProgressState) => windowController().SetProgressState(state),
+  /**
+   * Flashes the taskbar button until the window is in the foreground or stopFlash() runs.
+   * A window that is already in front is left not flashing.
+   */
+  flash: () => invoke<void>('window.flash'),
+  /** Stops taskbar flashing started by flash(). */
+  stopFlash: () => invoke<void>('window.stopFlash'),
+  /** True while the taskbar button is flashing. */
+  isFlashing: () => invoke<boolean>('window.isFlashing'),
 } as const
 
 export type WindowApi = typeof windowApi

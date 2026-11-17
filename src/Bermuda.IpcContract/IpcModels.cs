@@ -25,6 +25,26 @@ public interface IHostCommands
 }
 
 /// <summary>
+/// Window commands (<c>window.flash</c>, <c>window.stopFlash</c>, <c>window.isFlashing</c>).
+/// Implemented by <c>HostBridge</c>, which forwards them to that window's controller.
+/// </summary>
+[IpcCommands("window")]
+public interface IWindowCommands
+{
+    /// <summary>
+    /// Flashes the taskbar button until the window is in the foreground or <c>window.stopFlash</c> runs.
+    /// While the window is already in the foreground the call does not leave it flashing.
+    /// </summary>
+    void Flash();
+
+    /// <summary>Stops the taskbar button flashing.</summary>
+    void StopFlash();
+
+    /// <summary>True while the taskbar button is flashing.</summary>
+    bool IsFlashing();
+}
+
+/// <summary>
 /// A postMessage request from the web side to <c>HostBridge</c>. <c>Payload</c>
 /// is deliberately untyped (its shape depends on <c>Command</c>).
 /// </summary>

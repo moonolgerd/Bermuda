@@ -15,6 +15,9 @@ public class IpcDispatchTests
 
     [Theory]
     [InlineData("ping", typeof(IHostCommands))]
+    [InlineData("window.flash", typeof(IWindowCommands))]
+    [InlineData("window.stopFlash", typeof(IWindowCommands))]
+    [InlineData("window.isFlashing", typeof(IWindowCommands))]
     [InlineData("fdc3.getInfo", typeof(IFdc3Commands))]
     [InlineData("fdc3.raiseIntent", typeof(IFdc3Commands))] // "Async" suffix dropped
     [InlineData("fdc3.getIntentResult", typeof(IFdc3Commands))]
@@ -31,6 +34,13 @@ public class IpcDispatchTests
     {
         var discovered = IpcContract.IpcContract.Commands.Count(c => c.Interface == typeof(IFdc3Commands));
         Assert.Equal(typeof(IFdc3Commands).GetMethods().Length, discovered);
+    }
+
+    [Fact]
+    public void Every_window_command_is_discovered()
+    {
+        var discovered = IpcContract.IpcContract.Commands.Count(c => c.Interface == typeof(IWindowCommands));
+        Assert.Equal(typeof(IWindowCommands).GetMethods().Length, discovered);
     }
 
     [Fact]

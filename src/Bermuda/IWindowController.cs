@@ -59,4 +59,16 @@ public interface IWindowController
 
     /// <summary>Sets the taskbar progress value. Clamped to 0.0–1.0; ignored while the state is "none" or "indeterminate".</summary>
     void SetProgressValue(double value);
+
+    /// <summary>
+    /// Flashes the taskbar button until the window comes to the foreground or <see cref="StopFlash"/> is called.
+    /// A window that is already in the foreground is left not flashing.
+    /// </summary>
+    void Flash();
+
+    /// <summary>Stops taskbar flashing started by <see cref="Flash"/>.</summary>
+    void StopFlash();
+
+    /// <summary>True while the taskbar button is flashing.</summary>
+    bool IsFlashing { get; }
 }
