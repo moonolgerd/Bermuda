@@ -1,4 +1,4 @@
-using System.Windows;
+using Bermuda.IpcContract;
 
 namespace Bermuda;
 
@@ -59,6 +59,13 @@ public interface IWindowController
 
     /// <summary>Sets the taskbar progress value. Clamped to 0.0–1.0; ignored while the state is "none" or "indeterminate".</summary>
     void SetProgressValue(double value);
+
+    /// <summary>
+    /// Opens a child window owned by this one, sized from <paramref name="request"/>.
+    /// The URL must be same-origin with this window; otherwise throws <see cref="IpcRejectedException"/>.
+    /// The child connects to FDC3 as a new instance of this window's app and closes when this window closes.
+    /// </summary>
+    void OpenChild(OpenChildRequest request);
 
     /// <summary>
     /// Flashes the taskbar button until the window comes to the foreground or <see cref="StopFlash"/> is called.

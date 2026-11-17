@@ -13,7 +13,7 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Bermuda;
 
-public partial class MainWindow : Window, IWindowController, IFdc3AppSink
+public partial class MainWindow : Window, IWindowController, IWindowCommands, IFdc3AppSink
 {
     // The web side speaks camelCase (the generated TS shapes in
     // src/ipc/__generated__/ipc.d.ts); System.Text.Json's default is to keep
@@ -28,6 +28,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     // to repeat the exact same options anyway, e.g. the CDP port.
     private static Task<CoreWebView2Environment>? _environment;
 
+    private readonly IConfiguration _configuration;
     private readonly HostBridge _bridge;
     private readonly DesktopAgent _fdc3;
     private readonly string _fdc3AppId;
@@ -35,6 +36,24 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     private readonly string _webUrl;
     private readonly int _cdpPort;
     private readonly bool _clientTitleBar;
+
+    // False when this window exists only to satisfy NewWindowRequested: WebView2 navigates
+    // it (so window.opener is wired) and we must not navigate it ourselves.
+    private readonly bool _navigateOnLoad;
+
+    // One initialization, shared by OnLoaded and by a parent waiting on the NewWindowRequested deferral.
+    private Task<CoreWebView2>? _coreWebView;
+
+    // Set before Show when this window exists to satisfy NewWindowRequested. Invoked on the
+    // init stack, before that task's awaiters resume, so NewWindow is set while the
+    // CoreWebView2 is still unnavigated (WebView2 rejects one that has already navigated).
+    private Action<CoreWebView2>? _assignNewWindow;
+
+    private bool _coreEventsWired;
+
+    // window.open without a size, and openChild when a dimension is missing or not positive.
+    private const int DefaultChildWidth = 800;
+    private const int DefaultChildHeight = 600;
 
     // Resize border width and caption strip height used in client title bar mode.
     private const double ClientResizeBorder = 3;
@@ -63,9 +82,12 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     /// <param name="fdc3AppId">The App Directory appId this window's page runs as.</param>
     /// <param name="fdc3InstanceId">Set when FDC3 launched this window; the agent is waiting on this id.</param>
     /// <param name="url">Overrides WEB_URL (FDC3-launched windows load their App Directory URL).</param>
-    public MainWindow(IConfiguration configuration, DesktopAgent fdc3, string fdc3AppId, string? fdc3InstanceId = null, string? url = null)
+    /// <param name="navigateOnLoad">False for a <c>NewWindowRequested</c> child: WebView2 navigates it after the deferral.</param>
+    public MainWindow(IConfiguration configuration, DesktopAgent fdc3, string fdc3AppId, string? fdc3InstanceId = null, string? url = null, bool navigateOnLoad = true)
     {
         InitializeComponent();
+        _configuration = configuration;
+        _navigateOnLoad = navigateOnLoad;
         _fdc3 = fdc3;
         _fdc3AppId = fdc3AppId;
         _fdc3LaunchInstanceId = fdc3InstanceId;
@@ -74,6 +96,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         // A remote debugging port already means "dev/test run"; test-only commands ride on that.
         _bridge = new HostBridge(
             () => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."),
+            this,
             testHooks: _cdpPort > 0);
 
         // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native
@@ -215,24 +238,88 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
             DwmSetWindowAttribute(hwnd, 33 /* DWMWA_WINDOW_CORNER_PREFERENCE */, ref round, sizeof(int));
         }
 
-        await _webView.EnsureCoreWebView2Async(await GetEnvironmentAsync());
-        if (_closed) return;
+        try
+        {
+            await EnsureCoreWebViewAsync();
+        }
+        catch (Exception ex)
+        {
+            // A child window's init failure must not take the process down; the opener sees no window.
+            System.Diagnostics.Debug.WriteLine($"WebView2 failed to start: {ex}");
+        }
+    }
 
+    /// <summary>
+    /// Creates this window's WebView2 once. A parent opening this window from
+    /// <c>NewWindowRequested</c> awaits the same task <see cref="OnLoaded"/> starts,
+    /// then hands the <see cref="CoreWebView2"/> to the deferral so <c>window.opener</c> works.
+    /// </summary>
+    internal Task<CoreWebView2> EnsureCoreWebViewAsync() => _coreWebView ??= InitializeCoreWebViewAsync();
+
+    /// <summary>
+    /// Called by the parent before this window is shown, when it is the target of
+    /// <c>NewWindowRequested</c>. Invoked once the core exists and its document-created
+    /// script is registered, while the opener's deferral is still open.
+    /// </summary>
+    internal void WhenCoreReady(Action<CoreWebView2> assign) => _assignNewWindow = assign;
+
+    private async Task<CoreWebView2> InitializeCoreWebViewAsync()
+    {
+        // The script has to be registered before this core is handed to NewWindowRequested.
+        // WebView2 snapshots the document-created scripts when it accepts NewWindow, so a
+        // registration after that assignment misses the page window.open navigates to.
+        var preload = await LoadFdc3PreloadAsync();
+
+        await _webView.EnsureCoreWebView2Async(await GetEnvironmentAsync());
+        if (_closed) throw new InvalidOperationException("Window closed before its WebView2 was ready.");
+
+        var core = _webView.CoreWebView2;
 #if !DEBUG
-        _webView.CoreWebView2.Settings.AreDefaultContextMenusEnabled = false;
-        _webView.CoreWebView2.Settings.AreDevToolsEnabled = false;
+        core.Settings.AreDefaultContextMenusEnabled = false;
+        core.Settings.AreDevToolsEnabled = false;
 #endif
 
-        // window.fdc3 for every page, whatever app it is: runs before the page's own scripts.
-        if (File.Exists(Fdc3PreloadPath))
-            await _webView.CoreWebView2.AddScriptToExecuteOnDocumentCreatedAsync(await File.ReadAllTextAsync(Fdc3PreloadPath));
-        if (_closed) return;
+        if (preload is not null)
+            await core.AddScriptToExecuteOnDocumentCreatedAsync(preload);
+        if (_closed) throw new InvalidOperationException("Window closed before its WebView2 was ready.");
 
-        _webView.CoreWebView2.AddHostObjectToScript("windowController", new WindowScriptHost(this));
-        _webView.CoreWebView2.WebMessageReceived += OnWebMessageReceived;
-        _webView.CoreWebView2.NavigationStarting += OnNavigationStarting;
-        _webView.CoreWebView2.ContentLoading += OnContentLoading;
-        _webView.CoreWebView2.Navigate(_webUrl);
+        WireCoreEvents(core);
+        if (_navigateOnLoad)
+        {
+            ExposeHostObject();
+            core.Navigate(_webUrl);
+        }
+        else
+        {
+            // Assign while the opener's deferral is still open so window.opener is
+            // this core. The host object is registered after the deferral completes,
+            // once WebView2 has finished initializing the new web content.
+            _assignNewWindow?.Invoke(core);
+        }
+
+        return core;
+    }
+
+    private void WireCoreEvents(CoreWebView2 core)
+    {
+        if (_coreEventsWired) return;
+        _coreEventsWired = true;
+        core.WebMessageReceived += OnWebMessageReceived;
+        core.NavigationStarting += OnNavigationStarting;
+        core.ContentLoading += OnContentLoading;
+        core.NewWindowRequested += OnNewWindowRequested;
+        // window.close() from a page opened with window.open. CloseWindow honors the tray rule.
+        core.WindowCloseRequested += (_, _) => CloseWindow();
+    }
+
+    private static string? _fdc3Preload;
+
+    private static async Task<string?> LoadFdc3PreloadAsync()
+    {
+        if (_fdc3Preload is not null) return _fdc3Preload;
+        if (!File.Exists(Fdc3PreloadPath)) return null;
+        var text = await File.ReadAllTextAsync(Fdc3PreloadPath);
+        return _fdc3Preload ??= text;
     }
 
     private static string Fdc3PreloadPath { get; } = Path.Combine(AppContext.BaseDirectory, "Preload", "fdc3-preload.js");
@@ -243,18 +330,156 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     private bool IsTrustedOrigin(string? uri) =>
         string.Equals(Origin(uri), Origin(_webUrl), StringComparison.OrdinalIgnoreCase);
 
+    // True once a trusted document has started loading. Until then the implicit about:blank
+    // WebView2 creates must be left alone: cancelling it drops a NewWindowRequested child.
+    private bool _acceptedNavigation;
+
     // Only this window's own origin may be shown: anything else would be
     // connected to the agent (and the host bridge) under this window's appId.
+    // Child windows use the same rule (their _webUrl is already on this origin).
     private void OnNavigationStarting(object? sender, CoreWebView2NavigationStartingEventArgs e)
     {
-        if (!IsTrustedOrigin(e.Uri)) e.Cancel = true;
+        if (IsInitialBlank(e.Uri) && !_acceptedNavigation)
+            return;
+
+        if (!IsTrustedOrigin(e.Uri))
+        {
+            e.Cancel = true;
+            return;
+        }
+
+        _acceptedNavigation = true;
     }
+
+    private static bool IsInitialBlank(string? uri) =>
+        string.IsNullOrEmpty(uri) || string.Equals(uri, "about:blank", StringComparison.OrdinalIgnoreCase);
+
+    // window.open / target=_blank. The deferral keeps the caller's script waiting until
+    // NewWindow is set, which is what makes the return value (and window.opener) the child.
+    private async void OnNewWindowRequested(object? sender, CoreWebView2NewWindowRequestedEventArgs e)
+    {
+        // Handled with no NewWindow blocks the default popup, including a cross-origin one.
+        e.Handled = true;
+        var accepted = TryResolveSameOrigin(e.Uri, out var target);
+        if (_closed || !accepted) return;
+
+        MainWindow? child = null;
+        using (e.GetDeferral())
+        {
+            try
+            {
+                var features = e.WindowFeatures;
+                var width = features is { HasSize: true, Width: > 0 } ? (int)features.Width : DefaultChildWidth;
+                var height = features is { HasSize: true, Height: > 0 } ? (int)features.Height : DefaultChildHeight;
+                double? left = features is { HasPosition: true } ? (double)features.Left : null;
+                double? top = features is { HasPosition: true } ? (double)features.Top : null;
+                child = ShowOwnedChild(
+                    target.AbsoluteUri,
+                    width,
+                    height,
+                    navigateOnLoad: false,
+                    left,
+                    top,
+                    onCoreReady: core => e.NewWindow = core);
+                await child.EnsureCoreWebViewAsync();
+                if (e.NewWindow is null)
+                    throw new InvalidOperationException("Child CoreWebView2 was not assigned to NewWindow.");
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Child window failed to open: {ex}");
+                // CloseWindow defers the close: this handler is still inside the parent's WebView2 callback.
+                try { child?.CloseWindow(); } catch { /* already closing */ }
+                child = null;
+            }
+        }
+
+        // Deferral is complete, so the child's web content is initialized.
+        try { child?.ExposeHostObject(); }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Child window failed to open: {ex}");
+            try { child?.CloseWindow(); } catch { /* already closing */ }
+        }
+    }
+
+    /// <summary>
+    /// Resolves <paramref name="url"/> against this page and accepts it only when the result is an
+    /// http(s) URL on this window's origin — the same trust check as <see cref="OnNavigationStarting"/>.
+    /// </summary>
+    private bool TryResolveSameOrigin(string? url, out Uri resolved)
+    {
+        resolved = null!;
+        if (string.IsNullOrWhiteSpace(url)) return false;
+
+        var baseText = _webView.CoreWebView2?.Source;
+        if (!IsTrustedOrigin(baseText) || !Uri.TryCreate(baseText, UriKind.Absolute, out var baseUri))
+        {
+            if (!Uri.TryCreate(_webUrl, UriKind.Absolute, out baseUri)) return false;
+        }
+
+        if (!Uri.TryCreate(baseUri, url.Trim(), out var absolute)) return false;
+        if (absolute.Scheme != Uri.UriSchemeHttp && absolute.Scheme != Uri.UriSchemeHttps) return false;
+        if (!IsTrustedOrigin(absolute.AbsoluteUri)) return false;
+
+        resolved = absolute;
+        return true;
+    }
+
+    /// <summary>
+    /// A new window owned by this one, registered like every other window, running as a new FDC3
+    /// instance of this window's appId. Pass <paramref name="navigateOnLoad"/> false when WebView2
+    /// itself will navigate the child (NewWindowRequested).
+    /// </summary>
+    private MainWindow ShowOwnedChild(
+        string url,
+        int width,
+        int height,
+        bool navigateOnLoad,
+        double? left,
+        double? top,
+        Action<CoreWebView2>? onCoreReady = null)
+    {
+        var child = new MainWindow(_configuration, _fdc3, _fdc3AppId, url: url, navigateOnLoad: navigateOnLoad)
+        {
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.Manual,
+            Width = width,
+            Height = height,
+            Left = left ?? Left + 32,
+            Top = top ?? Top + 32,
+        };
+        // Before Show: OnLoaded starts init, and the callback must be in place when init finishes.
+        if (onCoreReady is not null) child.WhenCoreReady(onCoreReady);
+        child.Show();
+        return child;
+    }
+
+    /// <summary>
+    /// Projects the window controller into the page. For a <c>window.open</c> child this
+    /// has to happen after the opener's deferral completes; before that the web content
+    /// is not initialized and the registration never receives calls.
+    /// </summary>
+    internal void ExposeHostObject()
+    {
+        if (_webView.CoreWebView2 is not { } core) return;
+        _scriptHost ??= new WindowScriptHost(this);
+        core.AddHostObjectToScript("windowController", _scriptHost);
+    }
+
+    private WindowScriptHost? _scriptHost;
 
     // Reconnect once a navigation commits (ContentLoading fires before the
     // page's scripts and not for cancelled/failed navigations or redirect hops),
     // so the live page keeps its listeners until it is really replaced.
     private void OnContentLoading(object? sender, CoreWebView2ContentLoadingEventArgs e)
     {
+        if (!_navigateOnLoad)
+        {
+            try { ExposeHostObject(); }
+            catch (Exception ex) { System.Diagnostics.Debug.WriteLine($"Child host object failed: {ex}"); }
+        }
+
         try
         {
             var isFirstNavigation = _fdc3Connection is null;
@@ -451,6 +676,16 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
             TaskbarItemInfo ??= new TaskbarItemInfo();
             TaskbarItemInfo.ProgressValue = clamped;
         });
+    }
+
+    public void OpenChild(OpenChildRequest request)
+    {
+        if (!TryResolveSameOrigin(request.Url, out var target))
+            throw new IpcRejectedException("Child URL must be same-origin.");
+
+        var width = request.Width > 0 ? request.Width : DefaultChildWidth;
+        var height = request.Height > 0 ? request.Height : DefaultChildHeight;
+        ApplyWindowAction(() => ShowOwnedChild(target.AbsoluteUri, width, height, navigateOnLoad: true, left: null, top: null));
     }
 
     public void Flash() => ApplyWindowAction(() =>

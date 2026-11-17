@@ -6,6 +6,7 @@ import type {
   ShowNotificationResult,
   SimulateNotificationActivationRequest,
   SimulateNotificationActivationResult,
+  OpenChildRequest,
   TaskbarProgressState,
   UpdateApplyResult,
   UpdateCheckResult,
@@ -19,6 +20,7 @@ export type {
   ShowNotificationResult,
   SimulateNotificationActivationRequest,
   SimulateNotificationActivationResult,
+  OpenChildRequest,
   TaskbarProgressState,
   UpdateApplyResult,
   UpdateCheckResult,
@@ -92,6 +94,15 @@ const windowApi = {
   setOverlay: (iconPng: string, description = '') => windowController().SetOverlayIcon(iconPng, description),
   /** Sets the taskbar progress bar's state ('none' hides it). */
   setProgressState: (state: TaskbarProgressState) => windowController().SetProgressState(state),
+  /**
+   * Opens a child window owned by this one (it closes with this window). `url` is absolute or
+   * relative to this page and must be same-origin; `width` and `height` are the outer window size.
+   * A cross-origin url rejects. The child joins FDC3 as a new instance of this window's app.
+   */
+  openChild: async (request: OpenChildRequest): Promise<void> => {
+    const result = await invoke<{ error?: string } | null>('window.openChild', request)
+    if (result?.error) throw new Error(result.error)
+  },
   /**
    * Flashes the taskbar button until the window is in the foreground or stopFlash() runs.
    * A window that is already in front is left not flashing.

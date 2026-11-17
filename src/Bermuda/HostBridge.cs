@@ -17,10 +17,11 @@ namespace Bermuda;
 /// This window's current FDC3 connection, read per call because a page reload
 /// reconnects as a new instance (see MainWindow.OnContentLoading).
 /// </param>
+/// <param name="window">This window, for <c>window.*</c> commands such as <c>window.openChild</c>.</param>
 /// <param name="testHooks">Enables dev/test-only commands (MainWindow: when CDP_PORT is set).</param>
 [ClassInterface(ClassInterfaceType.AutoDual)]
 [ComVisible(true)]
-public class HostBridge(Func<IFdc3Commands> fdc3, bool testHooks = false) : IHostCommands
+public class HostBridge(Func<IFdc3Commands> fdc3, IWindowCommands window, bool testHooks = false) : IHostCommands
 {
     /// <summary>Web preset (camelCase, case-insensitive) with enums as camelCase strings, matching the generated TS unions.</summary>
     public static JsonSerializerOptions PayloadJson { get; } = new(JsonSerializerDefaults.Web)
@@ -70,11 +71,12 @@ public class HostBridge(Func<IFdc3Commands> fdc3, bool testHooks = false) : IHos
             // A missing payload is reported in these commands' normal result shape.
             return result;
         }
-        catch (Exception ex) when (ex is Fdc3Exception or IpcInvalidPayloadException)
+        catch (Exception ex) when (ex is Fdc3Exception or IpcInvalidPayloadException or IpcRejectedException)
         {
             // Fdc3Exception messages are the standard FDC3 error strings (and
-            // IpcInvalidPayloadException's is "InvalidArguments"), which the
-            // frontend's window.fdc3 rejects with as-is.
+            // IpcInvalidPayloadException's is "InvalidArguments"; IpcRejectedException
+            // carries a short refusal such as a cross-origin child URL). The page
+            // rejects with the message as-is.
             return new { error = ex.Message };
         }
         catch (Exception)
@@ -87,5 +89,6 @@ public class HostBridge(Func<IFdc3Commands> fdc3, bool testHooks = false) : IHos
     private object TargetFor(Type commands) =>
         commands == typeof(IFdc3Commands) ? fdc3()
         : commands == typeof(IHostCommands) ? this
+        : commands == typeof(IWindowCommands) ? window
         : throw new InvalidOperationException($"No handler for {commands.Name}.");
 }
