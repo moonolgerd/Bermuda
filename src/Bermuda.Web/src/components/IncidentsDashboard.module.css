@@ -12,10 +12,43 @@
   overflow: auto;
 }
 
-.mapSection {
-  flex: 0 0 40%;
-  min-width: 420px;
+.mapColumn {
   display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 0 0 40%;
+  width: 40%;
+  min-width: calc(420px + 2.75rem);
+  box-sizing: border-box;
+  overflow: hidden;
+  transition: flex-basis 200ms ease, width 200ms ease, min-width 200ms ease, height 200ms ease;
+}
+
+.mapColumn[data-collapsed='true'] {
+  flex-basis: 2.75rem;
+  width: 2.75rem;
+  min-width: 2.75rem;
+}
+
+.mapPane {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  overflow: hidden;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 200ms ease, visibility 0s linear;
+}
+
+.mapColumn[data-collapsed='true'] .mapPane {
+  flex: 0 0 0;
+  width: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 200ms ease, visibility 0s linear 200ms;
 }
 
 /* Too narrow for two columns (the map alone needs 420px): stack them and let the page scroll. */
@@ -30,9 +63,25 @@
     overflow-y: visible;
   }
 
-  .mapSection {
+  .mapColumn {
     flex: none;
+    width: 100%;
     min-width: 0;
     height: 24rem;
+  }
+
+  .mapColumn[data-collapsed='true'] {
+    flex-basis: auto;
+    width: 100%;
+    min-width: 0;
+    height: 2.75rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .mapColumn,
+  .mapPane {
+    transition-duration: 0s;
+    transition-delay: 0s;
   }
 }

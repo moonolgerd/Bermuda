@@ -14,6 +14,8 @@ import {
 import { useFdc3Listeners } from '../fdc3/useFdc3Listeners'
 import { IncidentsTable } from './IncidentsTable'
 import { IncidentMap } from './IncidentMap'
+import { mapCollapsedKey, useCollapsiblePane } from './useCollapsiblePane'
+import toggleStyles from './paneToggle.module.css'
 import styles from './IncidentsDashboard.module.css'
 
 const query = graphql`
@@ -30,9 +32,27 @@ const query = graphql`
   }
 `
 
+function MapPaneIcon() {
+  return (
+    <svg viewBox="0 0 24 24" width="18" height="18" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <rect x="3" y="3" width="18" height="18" rx="2" />
+      <path d="M15 3v18" />
+    </svg>
+  )
+}
+
 export function IncidentsDashboard() {
   const data = useLazyLoadQuery<IncidentsDashboardQuery>(query, {})
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const {
+    collapsed: mapCollapsed,
+    toggle: toggleMap,
+    paneRef: mapPaneRef,
+    toggleRef: mapToggleRef,
+  } = useCollapsiblePane<HTMLDivElement>(mapCollapsedKey, 'Backslash', () => {
+    // Leaflet measures its container once. Re-measure after the width transition.
+    window.setTimeout(() => window.dispatchEvent(new Event('resize')), 220)
+  })
 
   // A user's pick is shared on the joined FDC3 user channel (a no-op when not
   // joined). Only direct selections broadcast — incidents *received* over FDC3
@@ -88,6 +108,8 @@ export function IncidentsDashboard() {
     }
   }, [criticalOpenCount])
 
+  const mapLabel = mapCollapsed ? 'Expand map' : 'Collapse map'
+
   return (
     <div className={styles.layout}>
       <div className={styles.tableSection}>
@@ -97,12 +119,37 @@ export function IncidentsDashboard() {
           onSelect={select}
         />
       </div>
-      <div className={styles.mapSection}>
-        <IncidentMap
-          incidents={data.incidents}
-          selectedId={selectedId}
-          onSelect={select}
-        />
+      <div
+        className={styles.mapColumn}
+        data-pane="map"
+        data-collapsed={mapCollapsed ? 'true' : undefined}
+      >
+        <div
+          id="incident-map"
+          ref={mapPaneRef}
+          className={styles.mapPane}
+          inert={mapCollapsed ? true : undefined}
+          aria-hidden={mapCollapsed ? true : undefined}
+        >
+          <IncidentMap
+            incidents={data.incidents}
+            selectedId={selectedId}
+            onSelect={select}
+          />
+        </div>
+        <button
+          ref={mapToggleRef}
+          type="button"
+          className={toggleStyles.toggle}
+          aria-expanded={!mapCollapsed}
+          aria-controls="incident-map"
+          aria-keyshortcuts="Control+\\"
+          aria-label={mapLabel}
+          title={`${mapLabel} (Ctrl+\\)`}
+          onClick={toggleMap}
+        >
+          <MapPaneIcon />
+        </button>
       </div>
     </div>
   )
