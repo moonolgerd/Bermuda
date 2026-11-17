@@ -27,6 +27,9 @@ internal static class NotificationService
     /// <summary>Raised (on a background thread) when a toast or one of its buttons is clicked.</summary>
     public static event Action<NotificationActivation>? Activated;
 
+    /// <summary>Raised (possibly off the UI thread) after a toast has been shown.</summary>
+    public static event Action? ToastShown;
+
     public static void Initialize()
     {
         var manager = AppNotificationManager.Default;
@@ -181,6 +184,7 @@ internal static class NotificationService
 
             AppNotificationManager.Default.Show(notification);
             Shown[id] = new ShownToast(bodyArguments, buttonArguments, hasReply);
+            ToastShown?.Invoke();
             return new(true, "");
         }
         catch (Exception ex)
