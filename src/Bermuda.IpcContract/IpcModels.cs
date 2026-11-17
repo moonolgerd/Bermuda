@@ -25,6 +25,31 @@ public interface IHostCommands
 }
 
 /// <summary>
+/// CSS-pixel size of the page content a window should fit. Width and height are
+/// the content box the page measured (a <c>ResizeObserver</c> border box), not
+/// the outer window.
+/// </summary>
+public sealed record ContentSize(int Width, int Height);
+
+/// <summary>
+/// Per-window commands (<c>window.*</c>) on the <c>invoke()</c> channel.
+/// The host window the page is shown in implements them. Nothing is resized
+/// until a page calls <c>window.setContentSize</c>.
+/// </summary>
+[IpcCommands("window")]
+public interface IWindowCommands
+{
+    /// <summary>
+    /// Sizes this window so its content area fits <paramref name="size"/>.
+    /// The host converts those CSS pixels to device-independent pixels, adds
+    /// the caption strip (and the resize border kept outside the page), then
+    /// clamps to the monitor work area and the window's min/max. A non-positive
+    /// size is ignored.
+    /// </summary>
+    void SetContentSize(ContentSize size);
+}
+
+/// <summary>
 /// A postMessage request from the web side to <c>HostBridge</c>. <c>Payload</c>
 /// is deliberately untyped (its shape depends on <c>Command</c>).
 /// </summary>

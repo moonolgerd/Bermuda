@@ -17,10 +17,11 @@ namespace Bermuda;
 /// This window's current FDC3 connection, read per call because a page reload
 /// reconnects as a new instance (see MainWindow.OnContentLoading).
 /// </param>
+/// <param name="window">The window showing the page, for <c>window.*</c> commands.</param>
 /// <param name="testHooks">Enables dev/test-only commands (MainWindow: when CDP_PORT is set).</param>
 [ClassInterface(ClassInterfaceType.AutoDual)]
 [ComVisible(true)]
-public class HostBridge(Func<IFdc3Commands> fdc3, bool testHooks = false) : IHostCommands
+public class HostBridge(Func<IFdc3Commands> fdc3, IWindowCommands window, bool testHooks = false) : IHostCommands
 {
     /// <summary>Web preset (camelCase, case-insensitive) with enums as camelCase strings, matching the generated TS unions.</summary>
     public static JsonSerializerOptions PayloadJson { get; } = new(JsonSerializerDefaults.Web)
@@ -87,5 +88,6 @@ public class HostBridge(Func<IFdc3Commands> fdc3, bool testHooks = false) : IHos
     private object TargetFor(Type commands) =>
         commands == typeof(IFdc3Commands) ? fdc3()
         : commands == typeof(IHostCommands) ? this
+        : commands == typeof(IWindowCommands) ? window
         : throw new InvalidOperationException($"No handler for {commands.Name}.");
 }

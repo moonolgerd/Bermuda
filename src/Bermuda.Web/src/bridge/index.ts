@@ -1,4 +1,5 @@
 import type {
+  ContentSize,
   HostResponse,
   IpcRequest,
   NotificationActivation,
@@ -14,6 +15,7 @@ import type {
 } from '../ipc/__generated__/ipc'
 
 export type {
+  ContentSize,
   NotificationActivation,
   ShowNotificationRequest,
   ShowNotificationResult,
@@ -92,6 +94,41 @@ const windowApi = {
   setOverlay: (iconPng: string, description = '') => windowController().SetOverlayIcon(iconPng, description),
   /** Sets the taskbar progress bar's state ('none' hides it). */
   setProgressState: (state: TaskbarProgressState) => windowController().SetProgressState(state),
+  /**
+   * Ask the host to fit this window to a content box measured in CSS pixels.
+   * Opt-in: the host does not resize until a page calls this. The host converts
+   * DPI, adds the caption strip and clamps to the monitor work area.
+   */
+  setContentSize: (size: ContentSize): Promise<void> => invoke('window.setContentSize', size),
+  /**
+   * Opt in to content-driven sizing. Observes `element`'s border box and reports
+   * it through `setContentSize`. The element should have an intrinsic size — a
+   * box stretched to the viewport will chase the window as it resizes. Returns
+   * a function that stops observing. No-op outside the host.
+   */
+  observeContentSize: (element: Element): (() => void) => {
+    if (!window.chrome?.webview || typeof ResizeObserver === 'undefined') return () => {}
+
+    let lastWidth = -1
+    let lastHeight = -1
+    const report = (width: number, height: number) => {
+      const reportedWidth = Math.ceil(width)
+      const reportedHeight = Math.ceil(height)
+      if (reportedWidth < 1 || reportedHeight < 1 || (reportedWidth === lastWidth && reportedHeight === lastHeight)) return
+      lastWidth = reportedWidth
+      lastHeight = reportedHeight
+      void invoke<void>('window.setContentSize', { width: reportedWidth, height: reportedHeight })
+    }
+
+    const observer = new ResizeObserver(entries => {
+      const entry = entries[entries.length - 1]
+      if (!entry) return
+      const box = entry.borderBoxSize?.[0]
+      report(box ? box.inlineSize : entry.contentRect.width, box ? box.blockSize : entry.contentRect.height)
+    })
+    observer.observe(element)
+    return () => observer.disconnect()
+  },
 } as const
 
 export type WindowApi = typeof windowApi

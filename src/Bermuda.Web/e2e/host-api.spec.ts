@@ -56,6 +56,11 @@ test.describe('invoke() commands', () => {
     expect(result.error).toBe('Unknown command: definitelyNotACommand')
   })
 
+  test('window.setContentSize without a payload is rejected', async ({ page }) => {
+    const result = await inPage<{ error: string }>(page, "return await bermudaHost.invoke('window.setContentSize')")
+    expect(result.error).toBe('InvalidArguments')
+  })
+
   test('concurrent invocations are correlated to the right caller', async ({ page }) => {
     const results = await inPage<unknown[]>(
       page,
@@ -204,6 +209,81 @@ test.describe('window control', () => {
     expect(state.isMaximized).toBe(false)
     expect(state.bounds.width).toBe(1000)
     expect(state.bounds.height).toBe(700)
+  })
+
+  // Client title bar chrome: 3px resize border on each side, 40px caption + 3px bottom border
+  // (MainWindow.ClientCaptionHeight / ClientResizeBorder). DPI cancels when the
+  // WebView and the window share a scale, so the outer size is content + chrome.
+  test('setContentSize adds the caption strip to the reported content size', async ({ page }) => {
+    const client = await inPage<boolean>(page, 'return await bermudaHost.window.usesClientTitleBar()')
+    const state = await inPage<Snapshot>(
+      page,
+      `await bermudaHost.window.setContentSize({ width: 400, height: 240 })
+       return await bermudaHost.window.getState()`,
+    )
+
+    expect(state.isMaximized).toBe(false)
+    if (client) {
+      // ±2: Windows can snap the outer size to a physical pixel at fractional DPI.
+      expect(state.bounds.width).toBeGreaterThanOrEqual(404)
+      expect(state.bounds.width).toBeLessThanOrEqual(408)
+      expect(state.bounds.height).toBeGreaterThanOrEqual(281)
+      expect(state.bounds.height).toBeLessThanOrEqual(285)
+    } else {
+      expect(state.bounds.width).toBeGreaterThan(400)
+      expect(state.bounds.height).toBeGreaterThan(240)
+    }
+  })
+
+  test('setContentSize clamps a huge content size to the work area', async ({ page }) => {
+    const bounds = await inPage<{ width: number; height: number }>(
+      page,
+      `await bermudaHost.window.setContentSize({ width: 100000, height: 100000 })
+       return (await bermudaHost.window.getState()).bounds`,
+    )
+
+    expect(bounds.width).toBeGreaterThan(200)
+    expect(bounds.height).toBeGreaterThan(100)
+    expect(bounds.width).toBeLessThan(10_000)
+    expect(bounds.height).toBeLessThan(10_000)
+  })
+
+  test('setContentSize ignores a non-positive size', async ({ page }) => {
+    const before = await getState(page)
+    await inPage(page, 'await bermudaHost.window.setContentSize({ width: 0, height: 240 })')
+    expect((await getState(page)).bounds).toEqual(before.bounds)
+  })
+
+  test('observeContentSize reports the element through ResizeObserver', async ({ page }) => {
+    const client = await inPage<boolean>(page, 'return await bermudaHost.window.usesClientTitleBar()')
+    const bounds = await inPage<{ width: number; height: number }>(
+      page,
+      `const el = document.createElement('div')
+       el.style.cssText = 'width:400px;height:240px;position:fixed;left:0;top:0'
+       document.body.appendChild(el)
+       const stop = bermudaHost.window.observeContentSize(el)
+       try {
+         for (let i = 0; i < 40; i++) {
+           const state = await bermudaHost.window.getState()
+           if (${client ? 'state.bounds.width >= 404 && state.bounds.width <= 408 && state.bounds.height >= 281 && state.bounds.height <= 285' : 'state.bounds.width > 400 && state.bounds.height > 240'}) return state.bounds
+           await new Promise(r => setTimeout(r, 50))
+         }
+         return (await bermudaHost.window.getState()).bounds
+       } finally {
+         stop()
+         el.remove()
+       }`,
+    )
+
+    if (client) {
+      expect(bounds.width).toBeGreaterThanOrEqual(404)
+      expect(bounds.width).toBeLessThanOrEqual(408)
+      expect(bounds.height).toBeGreaterThanOrEqual(281)
+      expect(bounds.height).toBeLessThanOrEqual(285)
+    } else {
+      expect(bounds.width).toBeGreaterThan(400)
+      expect(bounds.height).toBeGreaterThan(240)
+    }
   })
 
   test('Move sets the window position', async ({ page }) => {

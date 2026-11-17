@@ -4,6 +4,11 @@
 //  and the [IpcHostObject] classes they mark (e.g. src/Bermuda/WindowScriptHost.cs).
 // </auto-generated>
 
+export interface ContentSize {
+    height: number;
+    width: number;
+}
+
 export interface Fdc3AddContextListenerRequest {
     channelId?: string | null;
     contextType?: string | null;
@@ -310,6 +315,9 @@ export interface IpcMethods {
     raiseIntentForContext: (payload: Fdc3RaiseIntentForContextRequest, ) => Promise<Fdc3IntentResolutionInfo>;
     sendIntentResult: (payload: Fdc3SendIntentResultRequest, ) => Promise<void>;
     unsubscribe: (payload: Fdc3ListenerIdRequest, ) => Promise<void>;
+  };
+  window: {
+    setContentSize: (payload: ContentSize, ) => Promise<void>;
   };
 }
 

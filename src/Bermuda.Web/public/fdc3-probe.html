@@ -8,11 +8,19 @@
   <head>
     <meta charset="UTF-8" />
     <title>FDC3 probe</title>
+    <style>
+      html, body { margin: 0; overflow: hidden; background: #2d2d2d; color: #f2f2f2; }
+      /* Shrink-wrap so the reported size is the content, not the viewport. Padding
+         keeps the heading's margin inside the box the window is fitted to. */
+      #content { display: inline-block; padding: 16px 20px; }
+    </style>
   </head>
   <body>
-    <h1>FDC3 probe</h1>
-    <p id="status">waiting for window.fdc3…</p>
-    <ul id="received"></ul>
+    <div id="content">
+      <h1>FDC3 probe</h1>
+      <p id="status">waiting for window.fdc3…</p>
+      <ul id="received"></ul>
+    </div>
     <script>
       const ready = window.fdc3
         ? Promise.resolve()
@@ -26,6 +34,30 @@
           document.getElementById('received').appendChild(item)
         })
       })
+    </script>
+    <!-- Opt in to content-driven sizing. Plain page, so this posts window.setContentSize
+         itself instead of going through the app bundle. The host adds the caption strip. -->
+    <script>
+      const content = document.getElementById('content')
+      const webview = window.chrome && window.chrome.webview
+      if (content && webview) {
+        let lastWidth = -1
+        let lastHeight = -1
+        const report = () => {
+          const box = content.getBoundingClientRect()
+          const width = Math.ceil(box.width)
+          const height = Math.ceil(box.height)
+          if (width < 1 || height < 1 || (width === lastWidth && height === lastHeight)) return
+          lastWidth = width
+          lastHeight = height
+          webview.postMessage({
+            id: crypto.randomUUID(),
+            command: 'window.setContentSize',
+            payload: { width, height },
+          })
+        }
+        new ResizeObserver(report).observe(content)
+      }
     </script>
   </body>
 </html>
