@@ -43,47 +43,41 @@ public class JumpListTests
     }
 
     [Fact]
-    public void Tasks_are_new_window_plus_each_web_app_and_store_no_exe_when_packaged()
+    public void Tasks_are_new_window_plus_each_web_app()
     {
         var directory = AppDirectory.Load(Path.Combine(AppContext.BaseDirectory, "fdc3-appd.json"));
         var web = directory.Apps.Where(a => string.Equals(a.Type, "web", StringComparison.OrdinalIgnoreCase)).ToList();
         Assert.Contains(directory.Apps, a => a.AppId == "native-incidents");
         Assert.Contains(web, a => a.AppId == "fdc3-probe");
 
-        var packaged = JumpListCatalog.Create(directory, packaged: true, unpackagedExecutable: WindowsAppsExe);
-        var unpackaged = JumpListCatalog.Create(directory, packaged: false, unpackagedExecutable: @"E:\app\Bermuda.exe");
+        var tasks = JumpListCatalog.Create(directory, WindowsAppsExe);
 
-        Assert.Equal(web.Count + 1, packaged.Count);
-        Assert.Equal("New window", packaged[0].Title);
-        Assert.Equal("--new-window", packaged[0].Arguments);
-        Assert.All(packaged, entry => Assert.Null(entry.ExecutablePath));
-        Assert.DoesNotContain(packaged, entry => entry.Arguments.Contains("native-incidents", StringComparison.Ordinal));
-        Assert.DoesNotContain(packaged, entry => entry.Arguments.Contains(".exe", StringComparison.OrdinalIgnoreCase));
+        Assert.Equal(web.Count + 1, tasks.Count);
+        Assert.Equal("New window", tasks[0].Title);
+        Assert.Equal("--new-window", tasks[0].Arguments);
+        Assert.All(tasks, entry => Assert.Equal(WindowsAppsExe, entry.ExecutablePath));
+        Assert.DoesNotContain(tasks, entry => entry.Arguments.Contains("native-incidents", StringComparison.Ordinal));
+        Assert.DoesNotContain(tasks, entry => entry.Arguments.Contains(".exe", StringComparison.OrdinalIgnoreCase));
 
-        Assert.Equal("FDC3 Probe", packaged.Single(e => e.Arguments == "--open fdc3-probe").Title);
+        Assert.Equal("FDC3 Probe", tasks.Single(e => e.Arguments == "--open fdc3-probe").Title);
 
         for (var i = 0; i < web.Count; i++)
-            Assert.Equal(LaunchArguments.OpenCommand(web[i].AppId), packaged[i + 1].Arguments);
-
-        // Same argument strings. Unpackaged adds the exe as its own field, which activation then prefixes.
-        Assert.Equal(packaged.Select(e => e.Arguments), unpackaged.Select(e => e.Arguments));
-        Assert.All(unpackaged, entry =>
         {
-            Assert.Equal(@"E:\app\Bermuda.exe", entry.ExecutablePath);
-            var commandLine = $@"""{entry.ExecutablePath}"" {entry.Arguments}";
-            Assert.Equal(LaunchArguments.Parse(entry.Arguments), LaunchArguments.Parse(commandLine));
-        });
+            Assert.Equal(LaunchArguments.OpenCommand(web[i].AppId), tasks[i + 1].Arguments);
+            var commandLine = $@"""{tasks[i + 1].ExecutablePath}"" {tasks[i + 1].Arguments}";
+            Assert.Equal(LaunchArguments.Parse(tasks[i + 1].Arguments), LaunchArguments.Parse(commandLine));
+        }
     }
 
     [Fact]
-    public void Unpackaged_without_an_exe_path_registers_nothing()
+    public void Without_an_exe_path_registers_nothing()
     {
         var directory = AppDirectory.Parse("""
             { "applications": [ { "appId": "fdc3-probe", "type": "web", "title": "FDC3 Probe", "details": { "url": "/fdc3-probe.html" } } ] }
             """);
 
-        Assert.Empty(JumpListCatalog.Create(directory, packaged: false, unpackagedExecutable: null));
-        Assert.Empty(JumpListCatalog.Create(directory, packaged: false, unpackagedExecutable: ""));
+        Assert.Empty(JumpListCatalog.Create(directory, null));
+        Assert.Empty(JumpListCatalog.Create(directory, ""));
     }
 
     [Fact]

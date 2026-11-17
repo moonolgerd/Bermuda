@@ -73,7 +73,7 @@ public partial class App : Application
         var window = new MainWindow(config, fdc3, MainAppId);
         window.ShowActivated = !StartsInBackground();
         window.Show();
-        // The unpackaged list is a set of shortcuts on this window's taskbar button, so the window
+        // The jump list is a set of shortcuts on this window's taskbar button, so the window
         // has to exist first. Tasks relaunch Bermuda.exe; a running instance receives them below.
         JumpListService.Register(directory);
         // Started at sign-in (or with --background): sit in the tray, no window until the user asks for it.
