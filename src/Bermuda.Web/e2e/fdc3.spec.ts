@@ -82,6 +82,11 @@ test.describe('FDC3', () => {
       expect(opened.appId).toBe('fdc3-probe')
       await expect(probe.locator('#status')).toHaveText('fdc3 ready')
       await expect(probe.locator('#received li')).toHaveText(['probe-7'])
+      // The probe opts in to content sizing, so the window leaves the default 1280×768.
+      await expect.poll(async () => probe.evaluate(async () => await window.chrome.webview.hostObjects.windowController.Width), {
+        message: 'probe window should shrink to its content',
+      }).toBeLessThan(800)
+      await expect.poll(async () => probe.evaluate(async () => await window.chrome.webview.hostObjects.windowController.Height)).toBeLessThan(600)
     } finally {
       const closed = probe.waitForEvent('close')
       await probe.evaluate(() => window.chrome.webview.hostObjects.windowController.Close()).catch(() => {})

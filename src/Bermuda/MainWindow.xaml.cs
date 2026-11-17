@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Shell;
 using Bermuda.Fdc3;
@@ -13,7 +14,7 @@ using Microsoft.Web.WebView2.Core;
 
 namespace Bermuda;
 
-public partial class MainWindow : Window, IWindowController, IFdc3AppSink
+public partial class MainWindow : Window, IWindowController, IWindowCommands, IFdc3AppSink
 {
     // The web side speaks camelCase (the generated TS shapes in
     // src/ipc/__generated__/ipc.d.ts); System.Text.Json's default is to keep
@@ -70,6 +71,7 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         // A remote debugging port already means "dev/test run"; test-only commands ride on that.
         _bridge = new HostBridge(
             () => _fdc3Connection ?? throw new InvalidOperationException("FDC3 not connected yet."),
+            this,
             testHooks: _cdpPort > 0);
 
         // TITLE_BAR=client (default) lets the web app draw the title bar; TITLE_BAR=native
@@ -430,6 +432,103 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
         });
     }
 
+    // IWindowCommands. Opt-in: only a page that reports a content size is resized.
+    public void SetContentSize(ContentSize size)
+    {
+        ApplyWindowAction(() =>
+        {
+            if (_closed) return;
+
+            // A maximized window has no content-sized bounds to write. Leave a
+            // minimized window minimized; Width/Height are its restore size.
+            if (base.WindowState != WindowState.Minimized)
+                base.WindowState = WindowState.Normal;
+
+            var dpi = VisualTreeHelper.GetDpi(this);
+            // WebView2's rasterization scale tracks this window's DPI, so the
+            // same DpiScale converts CSS pixels to DIPs (page zoom aside) and
+            // the monitor work area from physical pixels back to DIPs.
+            var fit = ContentWindowFit.Fit(
+                size,
+                new ContentWindowFit.Scales(PageZoom, dpi.DpiScaleX, dpi.DpiScaleY, dpi.DpiScaleX, dpi.DpiScaleY),
+                ContentChrome(),
+                new ContentWindowFit.Constraints(MinWidth, MinHeight, MaxWidth, MaxHeight),
+                MonitorWorkArea(dpi),
+                base.Left,
+                base.Top);
+            if (fit is not { } placement
+                || !double.IsFinite(placement.Width) || !double.IsFinite(placement.Height)
+                || placement.Width <= 0 || placement.Height <= 0)
+                return;
+            if (Math.Abs(base.Width - placement.Width) < 0.5
+                && Math.Abs(base.Height - placement.Height) < 0.5
+                && Math.Abs(base.Left - placement.Left) < 0.5
+                && Math.Abs(base.Top - placement.Top) < 0.5)
+                return;
+
+            base.Width = placement.Width;
+            base.Height = placement.Height;
+            base.Left = placement.Left;
+            base.Top = placement.Top;
+        });
+    }
+
+    // ZoomFactor is 1 until the WebView exists, and again if it isn't a finite zoom.
+    private double PageZoom
+    {
+        get
+        {
+            var zoom = _webView.ZoomFactor;
+            return zoom > 0 && double.IsFinite(zoom) ? zoom : 1;
+        }
+    }
+
+    // Extra outer size, in DIPs, so the WebView's content box matches the reported content.
+    private ContentWindowFit.Chrome ContentChrome()
+    {
+        if (_clientTitleBar)
+        {
+            // The page starts below the caption strip and inside the resize border
+            // (see ApplyClientTitleBar). Neither is part of the content box.
+            return new ContentWindowFit.Chrome(ClientResizeBorder * 2, ClientCaptionHeight + ClientResizeBorder);
+        }
+
+        var frame = SystemParameters.WindowNonClientFrameThickness;
+        return new ContentWindowFit.Chrome(frame.Left + frame.Right, frame.Top + frame.Bottom);
+    }
+
+    // Work area of the monitor this window is on, converted from physical pixels to DIPs.
+    private ContentWindowFit.Area MonitorWorkArea(DpiScale dpi)
+    {
+        var hwnd = NativeWindowHandle;
+        if (hwnd != IntPtr.Zero)
+        {
+            var monitor = MonitorFromWindow(hwnd, MonitorDefaultToNearest);
+            if (monitor != IntPtr.Zero)
+            {
+                var info = new Win32MonitorInfo { cbSize = Marshal.SizeOf<Win32MonitorInfo>() };
+                if (GetMonitorInfo(monitor, ref info))
+                {
+                    var scaleX = dpi.DpiScaleX > 0 ? dpi.DpiScaleX : 1;
+                    var scaleY = dpi.DpiScaleY > 0 ? dpi.DpiScaleY : 1;
+                    var width = (info.rcWork.Right - info.rcWork.Left) / scaleX;
+                    var height = (info.rcWork.Bottom - info.rcWork.Top) / scaleY;
+                    if (width > 0 && height > 0)
+                    {
+                        return new ContentWindowFit.Area(
+                            info.rcWork.Left / scaleX,
+                            info.rcWork.Top / scaleY,
+                            width,
+                            height);
+                    }
+                }
+            }
+        }
+
+        var work = SystemParameters.WorkArea;
+        return new ContentWindowFit.Area(work.Left, work.Top, work.Width, work.Height);
+    }
+
     [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]
     private static extern IntPtr NativeGetForegroundWindow();
 
@@ -452,5 +551,31 @@ public partial class MainWindow : Window, IWindowController, IFdc3AppSink
     private bool IsWindowForeground()
     {
         return NativeWindowHandle != IntPtr.Zero && NativeGetForegroundWindow() == NativeWindowHandle;
+    }
+
+    private const uint MonitorDefaultToNearest = 2;
+
+    [DllImport("user32.dll")]
+    private static extern IntPtr MonitorFromWindow(IntPtr hwnd, uint dwFlags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Auto)]
+    private static extern bool GetMonitorInfo(IntPtr hMonitor, ref Win32MonitorInfo lpmi);
+
+    [StructLayout(LayoutKind.Sequential, Pack = 4)]
+    private struct Win32Rect
+    {
+        public int Left;
+        public int Top;
+        public int Right;
+        public int Bottom;
+    }
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Auto, Pack = 4)]
+    private struct Win32MonitorInfo
+    {
+        public int cbSize;
+        public Win32Rect rcMonitor;
+        public Win32Rect rcWork;
+        public uint dwFlags;
     }
 }

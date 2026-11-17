@@ -18,6 +18,7 @@ public class IpcDispatchTests
     [InlineData("fdc3.getInfo", typeof(IFdc3Commands))]
     [InlineData("fdc3.raiseIntent", typeof(IFdc3Commands))] // "Async" suffix dropped
     [InlineData("fdc3.getIntentResult", typeof(IFdc3Commands))]
+    [InlineData("window.setContentSize", typeof(IWindowCommands))]
     public void Commands_are_named_from_their_interface_methods(string name, Type declaringInterface)
     {
         var command = IpcContract.IpcContract.Find(name);
@@ -80,6 +81,35 @@ public class IpcDispatchTests
         var error = await Assert.ThrowsAsync<Fdc3Exception>(() =>
             Invoke(a.Fdc3, "fdc3.joinUserChannel", """{ "channelId": "nope" }"""));
         Assert.Equal(Fdc3Errors.NoChannelFound, error.Message);
+    }
+
+    [Fact]
+    public async Task Window_setContentSize_binds_a_camelCase_payload()
+    {
+        var window = new RecordingWindow();
+
+        var result = await Invoke(window, "window.setContentSize", """{ "width": 480, "height": 320 }""");
+
+        Assert.Null(result);
+        Assert.Equal(new ContentSize(480, 320), window.Applied);
+    }
+
+    [Fact]
+    public async Task Window_setContentSize_without_a_payload_is_InvalidArguments()
+    {
+        var window = new RecordingWindow();
+
+        var error = await Assert.ThrowsAsync<IpcInvalidPayloadException>(() => Invoke(window, "window.setContentSize", null));
+
+        Assert.Equal("InvalidArguments", error.Message);
+        Assert.Null(window.Applied);
+    }
+
+    private sealed class RecordingWindow : IWindowCommands
+    {
+        public ContentSize? Applied { get; private set; }
+
+        public void SetContentSize(ContentSize size) => Applied = size;
     }
 
     private static Task<object?> Invoke(object target, string name, string? payload) =>
