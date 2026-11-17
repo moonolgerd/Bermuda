@@ -73,11 +73,14 @@ public partial class App : Application
         var window = new MainWindow(config, fdc3, MainAppId);
         window.ShowActivated = !StartsInBackground();
         window.Show();
+        // The jump list is a set of shortcuts on this window's taskbar button, so the window
+        // has to exist first. Tasks relaunch Bermuda.exe; a running instance receives them below.
+        JumpListService.Register(directory);
         // Started at sign-in (or with --background): sit in the tray, no window until the user asks for it.
         if (!window.ShowActivated) window.HideWindow();
 
         // The launch itself may ask for an app on top of the main window (e.g. a jump list task).
-        HandleLaunchArguments(Environment.GetCommandLineArgs().Skip(1).ToArray(), activateMainOtherwise: false);
+        HandleLaunchArguments(CurrentLaunchArguments(), activateMainOtherwise: false);
     }
 
     private TrayService? _tray;
@@ -142,7 +145,9 @@ public partial class App : Application
                 NotificationService.HandleForwarded(toast);
                 break;
             case ILaunchActivatedEventArgs launch:
-                HandleLaunchArguments(launch.Arguments.Split(' ', StringSplitOptions.RemoveEmptyEntries), activateMainOtherwise: true);
+                // Packaged: arguments are only "--open <appId>" / "--new-window".
+                // Unpackaged: the same string with the exe path in front. Parse accepts both.
+                HandleLaunchArguments(LaunchArguments.Parse(launch.Arguments), activateMainOtherwise: true);
                 break;
             default:
                 WindowRegistry.ActivateMain();
@@ -151,27 +156,85 @@ public partial class App : Application
     });
 
     /// <summary>
-    /// <c>--open &lt;appId&gt;</c> opens that App Directory app's window; anything else just brings the main window
-    /// forward. Used for the first launch and for activations forwarded from a second launch.
+    /// Command-line arguments, or — when those carry no task — the shell activation arguments.
+    /// An unpackaged jump list puts <c>--open</c> on the command line. A packaged one does not:
+    /// Windows launches the manifest's <c>Bermuda.exe</c> by package identity and delivers the task
+    /// string only through <see cref="ILaunchActivatedEventArgs.Arguments"/>.
+    /// </summary>
+    private static string[] CurrentLaunchArguments()
+    {
+        var commandLine = Environment.GetCommandLineArgs().Skip(1).ToArray();
+        if (LaunchArguments.HasTask(commandLine)) return commandLine;
+
+        try
+        {
+            if (AppInstance.GetCurrent().GetActivatedEventArgs().Data is ILaunchActivatedEventArgs launch)
+            {
+                var activation = LaunchArguments.Parse(launch.Arguments);
+                if (LaunchArguments.HasTask(activation)) return activation;
+            }
+        }
+        catch (Exception ex)
+        {
+            System.Diagnostics.Debug.WriteLine($"Could not read launch activation: {ex}");
+        }
+
+        return commandLine;
+    }
+
+    /// <summary>
+    /// <c>--open &lt;appId&gt;</c> opens that App Directory app's window. <c>--new-window</c> opens another
+    /// main window; the first launch's own window already counts, so it only does that when a second
+    /// launch was forwarded here. Anything else just brings the main window forward.
     /// </summary>
     private void HandleLaunchArguments(string[] args, bool activateMainOtherwise)
     {
-        var index = Array.FindIndex(args, a => string.Equals(a, "--open", StringComparison.OrdinalIgnoreCase));
-        if (index < 0 || index + 1 >= args.Length || _directory.Find(args[index + 1]) is not { } app || _launcher is null)
+        var index = Array.FindIndex(args, a => string.Equals(a, LaunchArguments.Open, StringComparison.OrdinalIgnoreCase));
+        if (index >= 0)
         {
+            if (index + 1 < args.Length && _directory.Find(args[index + 1]) is { } app && _launcher is not null)
+            {
+                try
+                {
+                    _launcher.Open(app);
+                    return;
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"Could not open {app.AppId}: {ex.Message}");
+                }
+            }
+
             if (activateMainOtherwise) WindowRegistry.ActivateMain();
             return;
         }
 
-        try
+        if (args.Any(a => string.Equals(a, LaunchArguments.NewWindow, StringComparison.OrdinalIgnoreCase)))
         {
-            _launcher.Open(app);
+            if (activateMainOtherwise) OpenNewWindow();
+            return;
         }
-        catch (Exception ex)
+
+        if (activateMainOtherwise) WindowRegistry.ActivateMain();
+    }
+
+    /// <summary>The jump list's "New window" task: another main window, same as the tray menu.</summary>
+    private void OpenNewWindow()
+    {
+        if (_directory.Find(MainAppId) is { } app && _launcher is not null)
         {
-            System.Diagnostics.Debug.WriteLine($"Could not open {app.AppId}: {ex.Message}");
-            if (activateMainOtherwise) WindowRegistry.ActivateMain();
+            try
+            {
+                _launcher.Open(app);
+                return;
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"Could not open a new window: {ex.Message}");
+            }
         }
+
+        WindowRegistry.ActivateMain();
     }
 
     /// <summary>

@@ -551,3 +551,94 @@ test.describe('child windows', () => {
     }
   })
 })
+
+test.describe('taskbar flash', () => {
+  let original: Snapshot
+
+  test.beforeEach(async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.StopFlash()')
+    original = await getState(page)
+  })
+
+  // Flash tests minimize the window so it is not the foreground window. Put it back afterwards.
+  test.afterEach(async ({ page }) => {
+    await inPage(
+      page,
+      `const c = chrome.webview.hostObjects.windowController
+       await c.StopFlash()
+       await c.Restore()
+       await c.Resize(${original.bounds.width}, ${original.bounds.height})
+       await c.Move(${original.bounds.left}, ${original.bounds.top})
+       ${original.isMaximized ? 'await c.Maximize()' : ''}`,
+    )
+  })
+
+  const isFlashing = (page: Page) =>
+    inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFlashing')
+
+  test('window.stopFlash is safe when the taskbar is not flashing', async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.StopFlash()')
+    expect(await isFlashing(page)).toBe(false)
+  })
+
+  test('window.flash starts flashing in the background and window.stopFlash stops it', async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Minimize()')
+    expect(await inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFocused')).toBe(false)
+
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Flash()')
+    expect(await isFlashing(page)).toBe(true)
+
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.StopFlash()')
+    expect(await isFlashing(page)).toBe(false)
+  })
+
+  test('window.flash does not leave a focused window flashing', async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Restore()')
+    const focused = await inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFocused')
+    test.skip(!focused, 'This session did not leave the Bermuda window in the foreground.')
+
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Flash()')
+    expect(await isFlashing(page)).toBe(false)
+  })
+
+  test('bermudaHost.window.flash and stopFlash call the host object', async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Minimize()')
+    await inPage(page, 'await bermudaHost.window.flash()')
+    expect(await inPage<boolean>(page, 'return await bermudaHost.window.isFlashing()')).toBe(true)
+
+    await inPage(page, 'await bermudaHost.window.stopFlash()')
+    expect(await inPage<boolean>(page, 'return await bermudaHost.window.isFlashing()')).toBe(false)
+  })
+
+  test('a background toast starts flashing and activation stops it', async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Minimize()')
+    expect(await inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFocused')).toBe(false)
+
+    const shown = await inPage<{ shown: boolean; message: string }>(
+      page,
+      `return await bermudaHost.notifications.show({ id: 'e2e-flash', title: 'Bermuda e2e', body: 'Flash the taskbar', expiresInSeconds: 4 })`,
+    )
+    expect(shown).toEqual({ shown: true, message: '' })
+    expect(await isFlashing(page)).toBe(true)
+
+    const delivered = await inPage<{ delivered: boolean; message: string }>(
+      page,
+      `return await bermudaHost.notifications.simulateActivation({ notificationId: 'e2e-flash' })`,
+    )
+    expect(delivered).toEqual({ delivered: true, message: '' })
+    expect(await isFlashing(page)).toBe(false)
+  })
+
+  test('a toast does not flash the taskbar when the window is focused', async ({ page }) => {
+    await inPage(page, 'await chrome.webview.hostObjects.windowController.Restore()')
+    const focused = await inPage<boolean>(page, 'return await chrome.webview.hostObjects.windowController.IsFocused')
+    test.skip(!focused, 'This session did not leave the Bermuda window in the foreground.')
+
+    const shown = await inPage<{ shown: boolean }>(
+      page,
+      `return await bermudaHost.notifications.show({ id: 'e2e-flash-focused', title: 'Bermuda e2e', body: 'Already here', expiresInSeconds: 4 })`,
+    )
+    expect(shown.shown).toBe(true)
+    expect(await isFlashing(page)).toBe(false)
+  })
+})

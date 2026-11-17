@@ -75,6 +75,10 @@ public partial class MainWindow : Window, IWindowController, IWindowCommands, IF
     // is disposed, so every continuation checks this before touching it.
     private bool _closed;
 
+    // True after Flash() until StopFlash(), or until the window comes to the foreground
+    // (FLASHW_TIMERNOFG). Read from the WebView thread; written on the UI thread.
+    private volatile bool _flashing;
+
     /// <param name="fdc3AppId">The App Directory appId this window's page runs as.</param>
     /// <param name="fdc3InstanceId">Set when FDC3 launched this window; the agent is waiting on this id.</param>
     /// <param name="url">Overrides WEB_URL (FDC3-launched windows load their App Directory URL).</param>
@@ -105,8 +109,11 @@ public partial class MainWindow : Window, IWindowController, IWindowCommands, IF
 
         Loaded += OnLoaded;
         StateChanged += OnStateChanged;
+        // FLASHW_TIMERNOFG stops on its own once this window is in front; keep our flag in step.
+        Activated += OnWindowActivated;
 
         // A toast (or one of its buttons) was clicked: surface the window and tell the web app.
+        NotificationService.ToastShown += OnNotificationShown;
         NotificationService.Activated += OnNotificationActivated;
         WindowRegistry.Add(this);
         // With the tray icon on, closing the main window only hides it; the tray's Quit is the way out.
@@ -119,6 +126,8 @@ public partial class MainWindow : Window, IWindowController, IWindowCommands, IF
         Closed += (_, _) =>
         {
             _closed = true;
+            StopFlash();
+            NotificationService.ToastShown -= OnNotificationShown;
             NotificationService.Activated -= OnNotificationActivated;
             _fdc3Connection?.Dispose();
             _fdc3Connection = null;
@@ -131,16 +140,30 @@ public partial class MainWindow : Window, IWindowController, IWindowCommands, IF
         };
     }
 
-    // Only the app's main window reacts to toast clicks (every window is subscribed to the static event).
+    // Only the app's main window reacts to toasts (every window is subscribed to the static events).
+    private void OnNotificationShown() => Dispatcher.Invoke(() =>
+    {
+        if (_closed || WindowRegistry.Main != this) return;
+        if (!((IWindowController)this).IsFocused)
+            Flash();
+    });
+
     private void OnNotificationActivated(NotificationActivation activation) => Dispatcher.Invoke(() =>
     {
         if (_closed || WindowRegistry.Main != this) return;
 
+        StopFlash();
         ShowWindow();
         Activate();
         if (_webView.CoreWebView2 is not null)
             PushEvent(activation);
     });
+
+    private void OnWindowActivated(object? sender, EventArgs e)
+    {
+        if (_closed || !_flashing) return;
+        StopFlash();
+    }
 
     private Task<CoreWebView2Environment> GetEnvironmentAsync()
     {
@@ -663,6 +686,57 @@ public partial class MainWindow : Window, IWindowController, IWindowCommands, IF
         var width = request.Width > 0 ? request.Width : DefaultChildWidth;
         var height = request.Height > 0 ? request.Height : DefaultChildHeight;
         ApplyWindowAction(() => ShowOwnedChild(target.AbsoluteUri, width, height, navigateOnLoad: true, left: null, top: null));
+    }
+
+    public void Flash() => ApplyWindowAction(() =>
+    {
+        // TIMERNOFG does not keep flashing a window that is already in front.
+        var foreground = IsWindowForeground();
+        FlashWindow(foreground ? FLASHW_STOP : (FLASHW_TRAY | FLASHW_TIMERNOFG));
+        _flashing = NativeWindowHandle != IntPtr.Zero && !foreground;
+    });
+
+    public void StopFlash() => ApplyWindowAction(() =>
+    {
+        FlashWindow(FLASHW_STOP);
+        _flashing = false;
+    });
+
+    public bool IsFlashing => _flashing;
+
+    // FLASHW_TRAY | FLASHW_TIMERNOFG flashes the taskbar button until this window is in
+    // the foreground or FLASHW_STOP. dwTimeout 0 uses the caret blink rate.
+    private const uint FLASHW_STOP = 0;
+    private const uint FLASHW_TRAY = 0x00000002;
+    private const uint FLASHW_TIMERNOFG = 0x0000000C;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct FLASHWINFO
+    {
+        public uint cbSize;
+        public IntPtr hwnd;
+        public uint dwFlags;
+        public uint uCount;
+        public uint dwTimeout;
+    }
+
+    [DllImport("user32.dll")]
+    private static extern bool FlashWindowEx(ref FLASHWINFO pwfi);
+
+    private void FlashWindow(uint flags)
+    {
+        var hwnd = NativeWindowHandle;
+        if (hwnd == IntPtr.Zero) return;
+
+        var info = new FLASHWINFO
+        {
+            cbSize = (uint)Marshal.SizeOf<FLASHWINFO>(),
+            hwnd = hwnd,
+            dwFlags = flags,
+            uCount = flags == FLASHW_STOP ? 0u : uint.MaxValue,
+            dwTimeout = 0,
+        };
+        FlashWindowEx(ref info);
     }
 
     [DllImport("user32.dll", EntryPoint = "GetForegroundWindow")]

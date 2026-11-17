@@ -66,4 +66,16 @@ public interface IWindowController
     /// The child connects to FDC3 as a new instance of this window's app and closes when this window closes.
     /// </summary>
     void OpenChild(OpenChildRequest request);
+
+    /// <summary>
+    /// Flashes the taskbar button until the window comes to the foreground or <see cref="StopFlash"/> is called.
+    /// A window that is already in the foreground is left not flashing.
+    /// </summary>
+    void Flash();
+
+    /// <summary>Stops taskbar flashing started by <see cref="Flash"/>.</summary>
+    void StopFlash();
+
+    /// <summary>True while the taskbar button is flashing.</summary>
+    bool IsFlashing { get; }
 }

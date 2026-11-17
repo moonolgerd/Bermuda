@@ -57,4 +57,8 @@ public sealed class WindowScriptHost
 
     public void SetProgressState(string state) => _window.SetProgressState(state);
     public void SetProgressValue(double value) => _window.SetProgressValue(value);
+
+    public void Flash() => _window.Flash();
+    public void StopFlash() => _window.StopFlash();
+    public bool IsFlashing => _window.IsFlashing;
 }

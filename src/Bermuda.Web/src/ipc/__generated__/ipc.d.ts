@@ -270,6 +270,7 @@ export interface WindowControllerHostObject {
   readonly Top: Promise<number>;
   readonly Width: Promise<number>;
   readonly Height: Promise<number>;
+  readonly IsFlashing: Promise<boolean>;
   Minimize(): Promise<void>;
   Maximize(): Promise<void>;
   Restore(): Promise<void>;
@@ -283,6 +284,8 @@ export interface WindowControllerHostObject {
   ClearOverlayIcon(): Promise<void>;
   SetProgressState(state: string): Promise<void>;
   SetProgressValue(value: number): Promise<void>;
+  Flash(): Promise<void>;
+  StopFlash(): Promise<void>;
 }
 
 export interface IpcMethods {

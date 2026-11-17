@@ -103,6 +103,15 @@ const windowApi = {
     const result = await invoke<{ error?: string } | null>('window.openChild', request)
     if (result?.error) throw new Error(result.error)
   },
+  /**
+   * Flashes the taskbar button until the window is in the foreground or stopFlash() runs.
+   * A window that is already in front is left not flashing.
+   */
+  flash: () => windowController().Flash(),
+  /** Stops taskbar flashing started by flash(). */
+  stopFlash: () => windowController().StopFlash(),
+  /** True while the taskbar button is flashing. */
+  isFlashing: () => windowController().IsFlashing,
 } as const
 
 export type WindowApi = typeof windowApi
