@@ -1,0 +1,30 @@
+.toggle {
+  flex: 0 0 auto;
+  align-self: flex-start;
+  box-sizing: border-box;
+  width: 2.25rem;
+  height: 2.25rem;
+  margin: 0.25rem;
+  padding: 0;
+  display: grid;
+  place-items: center;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: #cbd5e1;
+  cursor: pointer;
+}
+
+.toggle svg {
+  display: block;
+}
+
+.toggle:hover {
+  background: rgba(255, 255, 255, 0.08);
+  border-color: transparent;
+}
+
+.toggle:focus-visible {
+  outline: 2px solid #38bdf8;
+  outline-offset: 2px;
+}

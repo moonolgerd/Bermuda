@@ -1,0 +1,97 @@
+.shell {
+  display: flex;
+  flex: 1 1 auto;
+  min-height: 0;
+  min-width: 0;
+  align-items: stretch;
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: row;
+  align-items: stretch;
+  flex: 0 0 17rem;
+  width: 17rem;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  box-sizing: border-box;
+  background: #242424;
+  color: rgba(255, 255, 255, 0.87);
+  color-scheme: dark;
+  border-right: 1px solid #1e293b;
+  transition: flex-basis 200ms ease, width 200ms ease;
+}
+
+.sidebar[data-collapsed='true'] {
+  flex-basis: 2.75rem;
+  width: 2.75rem;
+}
+
+.pane {
+  flex: 1 1 auto;
+  align-self: stretch;
+  min-width: 0;
+  min-height: 0;
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+  padding: 0.25rem 0.85rem 1rem 0.15rem;
+  box-sizing: border-box;
+  opacity: 1;
+  visibility: visible;
+  transition: opacity 200ms ease, visibility 0s linear;
+}
+
+.sidebar[data-collapsed='true'] .pane {
+  overflow: hidden;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  transition: opacity 200ms ease, visibility 0s linear 200ms;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0;
+  min-height: 2.25rem;
+  font-size: 1.25rem;
+  font-weight: 600;
+  line-height: 1.2;
+  white-space: nowrap;
+}
+
+.logo {
+  width: 2rem;
+  height: 2rem;
+  flex: 0 0 auto;
+}
+
+.nav {
+  display: flex;
+  flex-direction: column;
+  gap: 0.75rem;
+  min-width: 0;
+}
+
+.windows button {
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0.4em 0.75em;
+  font-size: 0.875rem;
+  text-align: left;
+  /* Explicit: the global button rule uses a light background under a light OS theme. */
+  background-color: #1a1a1a;
+  color: rgba(255, 255, 255, 0.87);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sidebar,
+  .pane {
+    transition-duration: 0s;
+    transition-delay: 0s;
+  }
+}
